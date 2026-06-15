@@ -1,0 +1,2251 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motor Control · Stepper Interface</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════
+   THEME TOKENS
+══════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg:         #e8e2d8;
+  --surface:    #f7f4ee;
+  --surface2:   #ede8df;
+  --surface3:   #e0d9ce;
+  --border:     #c8bfaf;
+  --border2:    #b0a593;
+  --cyan:       #006f99;
+  --cyan-glow:  rgba(0,111,153,0.15);
+  --cyan-dim:   rgba(0,111,153,0.07);
+  --red:        #bb2222;
+  --red-glow:   rgba(187,34,34,0.15);
+  --yellow:     #7a5200;
+  --yellow-bg:  rgba(122,82,0,0.08);
+  --yellow-br:  rgba(122,82,0,0.30);
+  --green:      #005e3a;
+  --green-bg:   rgba(0,94,58,0.07);
+  --green-br:   rgba(0,94,58,0.25);
+  --orange:     #9a3e00;
+  --orange-bg:  rgba(154,62,0,0.07);
+  --orange-br:  rgba(154,62,0,0.25);
+  --purple:     #5228a0;
+  --purple-bg:  rgba(82,40,160,0.07);
+  --purple-br:  rgba(82,40,160,0.25);
+  --violet:     #7c3aed;
+  --violet-bg:  rgba(124,58,237,0.07);
+  --violet-br:  rgba(124,58,237,0.25);
+  --text:       #2c2720;
+  --dim:        #6b6255;
+  --white:      #2c2720;
+  --shadow:     0 2px 14px rgba(60,40,10,0.12);
+  --shadow-lg:  0 8px 40px rgba(60,40,10,0.18);
+}
+[data-theme="dark"] {
+  --bg:         #2c2f32;
+  --surface:    #3a3e43;
+  --surface2:   #323538;
+  --surface3:   #2c2f32;
+  --border:     #52585e;
+  --border2:    #666d75;
+  --cyan:       #00c8aa;
+  --cyan-glow:  rgba(0,200,170,0.15);
+  --cyan-dim:   rgba(0,200,170,0.06);
+  --red:        #ee3c3c;
+  --red-glow:   rgba(238,60,60,0.15);
+  --yellow:     #c89e28;
+  --yellow-bg:  rgba(200,158,40,0.09);
+  --yellow-br:  rgba(200,158,40,0.30);
+  --green:      #00c080;
+  --green-bg:   rgba(0,192,128,0.07);
+  --green-br:   rgba(0,192,128,0.25);
+  --orange:     #dd6a30;
+  --orange-bg:  rgba(221,106,48,0.08);
+  --orange-br:  rgba(221,106,48,0.25);
+  --purple:     #9070d8;
+  --purple-bg:  rgba(144,112,216,0.08);
+  --purple-br:  rgba(144,112,216,0.25);
+  --violet:     #a78bfa;
+  --violet-bg:  rgba(167,139,250,0.08);
+  --violet-br:  rgba(167,139,250,0.25);
+  --text:       #e8e2da;
+  --dim:        #7a8288;
+  --white:      #e8e2da;
+  --shadow:     none;
+  --shadow-lg:  none;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; overflow-x: hidden; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: 'DM Mono', monospace; min-height: 100vh;
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: 20px 24px 60px; transition: background 0.3s, color 0.3s;
+}
+[data-theme="dark"] body::after {
+  content: ''; position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+  pointer-events: none; z-index: 0;
+}
+.page {
+  width: 100%; max-width: 100%; display: flex; flex-direction: column;
+  gap: 12px; position: relative; z-index: 1;
+}
+
+/* ══════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════ */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 14px; border-bottom: 1px solid var(--border); margin-bottom: 2px;
+  flex-wrap: wrap; gap: 10px;
+}
+.header-left { display: flex; align-items: baseline; gap: 14px; }
+.header-left h1 {
+  font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800;
+  color: var(--white); letter-spacing: 2px; text-transform: uppercase;
+}
+.header-left .sub { font-size: 10px; color: var(--dim); letter-spacing: 2.5px; }
+.header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.badge {
+  font-size: 10px; letter-spacing: 1px; padding: 4px 10px;
+  border-radius: 2px; background: var(--yellow-bg); border: 1px solid var(--yellow-br); color: var(--yellow);
+  white-space: nowrap;
+}
+.badge.green  { background: var(--green-bg);  border-color: var(--green-br);  color: var(--green); }
+.badge.cyan   { background: var(--cyan-dim);  border-color: var(--cyan-glow); color: var(--cyan); }
+.badge.violet { background: var(--violet-bg); border-color: var(--violet-br); color: var(--violet); }
+.badge.red    { background: var(--red-glow);  border-color: var(--red);       color: var(--red); }
+
+.theme-toggle {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 12px; cursor: pointer;
+  font-size: 11px; color: var(--dim); transition: all 0.2s;
+  box-shadow: var(--shadow);
+}
+.theme-toggle:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* ══════════════════════════════════════════
+   GRID LAYOUTS
+══════════════════════════════════════════ */
+.grid-4   { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+.grid-3   { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.grid-2   { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+.grid-main { display: grid; grid-template-columns: 340px 1fr; gap: 12px; align-items: start; }
+
+/* ══════════════════════════════════════════
+   PANEL
+══════════════════════════════════════════ */
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 5px; padding: 16px 18px;
+  box-shadow: var(--shadow); transition: background 0.3s, border-color 0.3s;
+}
+.panel-title {
+  font-size: 9px; letter-spacing: 3.5px; color: var(--dim);
+  text-transform: uppercase; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.panel-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.panel-title .pill {
+  font-size: 8px; padding: 2px 7px; border-radius: 10px; letter-spacing: 1px;
+  background: var(--cyan-dim); border: 1px solid var(--cyan-glow); color: var(--cyan);
+}
+.panel-title .pill.violet {
+  background: var(--violet-bg); border-color: var(--violet-br); color: var(--violet);
+}
+
+
+/* ══════════════════════════════════════════
+   CONNECTION
+══════════════════════════════════════════ */
+.conn-row { display: flex; gap: 7px; align-items: stretch; }
+select {
+  flex: 1; background: var(--surface2); color: var(--white);
+  border: 1px solid var(--border2); border-radius: 3px;
+  padding: 8px 11px; font-family: 'DM Mono', monospace; font-size: 12px;
+  outline: none; cursor: pointer; -webkit-appearance: none; transition: border-color 0.2s; min-width: 0;
+}
+select:focus { border-color: var(--cyan); }
+.icon-btn {
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 3px;
+  color: var(--dim); width: 34px; cursor: pointer; font-size: 15px;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0;
+}
+.icon-btn:hover { border-color: var(--text); color: var(--text); }
+.btn {
+  font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 1.5px;
+  text-transform: uppercase; border: 1px solid transparent; border-radius: 3px;
+  padding: 8px 14px; cursor: pointer; transition: all 0.15s; white-space: nowrap; background: transparent;
+}
+.btn:disabled { opacity: 0.28; cursor: not-allowed; }
+.btn-cyan   { border-color: var(--cyan);      color: var(--cyan);   background: var(--cyan-glow); }
+.btn-cyan:hover:not(:disabled)   { background: var(--cyan);   color: var(--bg); box-shadow: 0 0 18px var(--cyan-glow); }
+.btn-ghost  { border-color: var(--border2);   color: var(--dim); }
+.btn-ghost:hover:not(:disabled)  { border-color: var(--text); color: var(--text); }
+.btn-red    { border-color: var(--red);       color: var(--red);    background: var(--red-glow); }
+.btn-red:hover:not(:disabled)    { background: var(--red);    color: white; }
+.btn-orange { border-color: var(--orange-br); color: var(--orange); background: var(--orange-bg); }
+.btn-orange:hover:not(:disabled) { border-color: var(--orange); }
+.btn-violet { border-color: var(--violet-br); color: var(--violet); background: var(--violet-bg); }
+.btn-violet:hover:not(:disabled) { border-color: var(--violet); background: var(--violet); color: white; }
+.btn-green  { border-color: var(--green-br);  color: var(--green);  background: var(--green-bg); }
+.btn-green:hover:not(:disabled)  { border-color: var(--green);  background: var(--green); color: white; }
+
+.status-row {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  font-size: 10px; letter-spacing: 1.5px; color: var(--dim);
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+.status-row.connected { color: var(--cyan); }
+.status-row.connected .dot { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); animation: blink 2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ══════════════════════════════════════════
+   POSITION CARDS
+══════════════════════════════════════════ */
+.pos-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.pos-card {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 4px; padding: 11px 13px;
+}
+.pos-card .pos-label { font-size: 9px; letter-spacing: 2px; color: var(--dim); text-transform: uppercase; margin-bottom: 4px; }
+.pos-card .pos-val   { font-family: 'Syne', sans-serif; font-size: 19px; font-weight: 700; color: var(--white); line-height: 1.2; }
+.pos-card .pos-unit  { font-size: 10px; color: var(--dim); margin-top: 2px; }
+.pos-card.home-set   { border-color: var(--green-br); background: var(--green-bg); }
+.pos-card.home-set .pos-val { color: var(--green); }
+.pos-card.speed-card { border-color: var(--purple-br); background: var(--purple-bg); }
+.pos-card.speed-card .pos-val { color: var(--purple); }
+
+/* ══════════════════════════════════════════
+   HOMING BUTTON
+══════════════════════════════════════════ */
+.home-seek-btn {
+  width: 100%; padding: 14px; border-radius: 4px; cursor: pointer;
+  border: 2px solid var(--green-br); background: var(--green-bg);
+  color: var(--green); font-family: 'Syne', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  margin-bottom: 8px;
+}
+.home-seek-btn:disabled { opacity: 0.22; cursor: not-allowed; }
+.home-seek-btn:not(:disabled):hover { border-color: var(--green); box-shadow: 0 0 22px var(--green-bg); }
+.home-seek-btn.seeking { border-color: var(--green); animation: pulse-green 1s ease-in-out infinite; }
+@keyframes pulse-green { 0%,100%{box-shadow:0 0 8px var(--green-bg)} 50%{box-shadow:0 0 24px rgba(0,192,128,0.4)} }
+.home-seek-btn .icon { font-size: 22px; }
+.home-seek-btn .sub  { font-size: 9px; opacity: 0.65; letter-spacing: 1px; }
+
+/* ══════════════════════════════════════════
+   MOVE INPUTS
+══════════════════════════════════════════ */
+.move-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.move-col {
+  background: var(--surface2); border: 2px solid var(--border2);
+  border-radius: 4px; padding: 13px 15px; cursor: pointer;
+  transition: all 0.2s; position: relative;
+}
+.move-col.active              { border-color: var(--cyan); background: var(--cyan-dim); }
+.move-col.active .move-col-title { color: var(--cyan); }
+.move-col-title {
+  font-size: 9px; letter-spacing: 3px; color: var(--dim);
+  text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+}
+.move-col-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.move-col .active-pill {
+  display: none; font-size: 8px; padding: 2px 7px; border-radius: 10px;
+  background: var(--cyan); color: var(--bg); letter-spacing: 1px;
+}
+.move-col.active .active-pill { display: inline; }
+.field-wrap {
+  border: 1px solid var(--border2); border-radius: 3px;
+  overflow: hidden; transition: border-color 0.2s;
+  display: flex; align-items: stretch; background: var(--surface);
+}
+.field-wrap:focus-within { border-color: var(--cyan); }
+.field-wrap input {
+  flex: 1; background: transparent; color: var(--white); border: none;
+  padding: 10px 12px; font-family: 'Syne', sans-serif; font-size: 22px;
+  font-weight: 700; outline: none; min-width: 0;
+}
+.field-wrap .unit {
+  background: transparent; color: var(--dim); font-size: 11px;
+  padding: 0 11px; display: flex; align-items: center;
+  border-left: 1px solid var(--border2); white-space: nowrap; letter-spacing: 1px;
+}
+.calc-hint {
+  margin-top: 8px; font-size: 10px; color: var(--dim);
+  display: flex; gap: 5px; align-items: baseline; min-height: 16px; flex-wrap: wrap;
+}
+.calc-hint strong { color: var(--cyan); font-size: 12px; }
+.confirm-btn {
+  margin-top: 11px; width: 100%;
+  font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 2px;
+  text-transform: uppercase; border-radius: 3px; padding: 9px;
+  cursor: pointer; transition: all 0.2s; border: 1px solid var(--border2);
+  background: var(--surface); color: var(--dim);
+}
+.confirm-btn:hover { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+.move-col.active .confirm-btn { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); font-weight: bold; }
+
+/* ══════════════════════════════════════════
+   DIRECTION BUTTONS
+══════════════════════════════════════════ */
+.dir-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dir-btn {
+  border-radius: 4px; padding: 20px 12px 16px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--surface2);
+  transition: all 0.2s; display: flex; flex-direction: column;
+  align-items: center; gap: 8px; position: relative; overflow: hidden;
+}
+.dir-btn:disabled { opacity: 0.18; cursor: not-allowed; }
+.arrow-wrap {
+  width: 50px; height: 50px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+}
+.dir-label { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
+.dir-sub   { font-size: 9px; color: var(--dim); letter-spacing: 1px; margin-top: -4px; }
+.dir-steps { font-size: 9px; color: var(--dim); letter-spacing: 0.5px; }
+.dir-steps span { color: var(--cyan); }
+.dir-btn.cw  { border-color: rgba(0,136,170,0.22); }
+.dir-btn.cw  .arrow-wrap { background: var(--cyan-glow); }
+.dir-btn.cw  .dir-label  { color: var(--cyan); }
+.dir-btn.cw:not(:disabled):hover  { border-color: var(--cyan); background: var(--cyan-glow); box-shadow: 0 0 22px var(--cyan-glow); }
+.dir-btn.ccw { border-color: rgba(204,40,40,0.22); }
+.dir-btn.ccw .arrow-wrap { background: var(--red-glow); }
+.dir-btn.ccw .dir-label  { color: var(--red); }
+.dir-btn.ccw:not(:disabled):hover { border-color: var(--red); background: var(--red-glow); box-shadow: 0 0 22px var(--red-glow); }
+.dir-btn.cw.running  .arrow-wrap svg { animation: spin-cw  0.6s linear infinite; }
+.dir-btn.ccw.running .arrow-wrap svg { animation: spin-ccw 0.6s linear infinite; }
+@keyframes spin-cw  { to { transform: rotate(360deg);  } }
+@keyframes spin-ccw { to { transform: rotate(-360deg); } }
+.dir-btn.running::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent);
+  animation: sweep 0.8s ease-in-out infinite;
+}
+@keyframes sweep { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+
+/* Limit-blocked state on direction buttons */
+.dir-btn.limit-blocked {
+  border-color: var(--red) !important;
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+}
+
+/* ══════════════════════════════════════════
+   QUICK ACTIONS
+══════════════════════════════════════════ */
+.action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.go-home-btn {
+  padding: 14px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--green-br); background: var(--green-bg);
+  color: var(--green); font-family: 'Syne', sans-serif; font-weight: 700;
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+.go-home-btn:disabled { opacity: 0.18; cursor: not-allowed; }
+.go-home-btn:not(:disabled):hover { border-color: var(--green); box-shadow: 0 0 18px var(--green-bg); }
+.go-home-btn .icon { font-size: 20px; }
+.go-home-btn .sub  { font-size: 9px; opacity: 0.6; }
+.estop-btn {
+  padding: 14px; border-radius: 4px; cursor: pointer;
+  border: 2px solid var(--red); background: var(--red-glow);
+  color: var(--red); font-family: 'Syne', sans-serif; font-weight: 800;
+  font-size: 13px; letter-spacing: 3px; text-transform: uppercase;
+  transition: all 0.15s; display: flex; flex-direction: column;
+  align-items: center; gap: 4px; position: relative; overflow: hidden;
+}
+.estop-btn:disabled { opacity: 0.18; cursor: not-allowed; }
+.estop-btn:not(:disabled):hover { background: var(--red); color: white; box-shadow: 0 0 28px var(--red-glow); }
+.estop-btn .icon { font-size: 20px; }
+.estop-btn.firing { animation: flash 0.15s ease 2; }
+@keyframes flash { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ══════════════════════════════════════════
+   CONFIG — MICROSTEP
+══════════════════════════════════════════ */
+.mstep-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin-bottom: 12px; }
+.mstep-btn {
+  border-radius: 3px; padding: 9px 4px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--surface2);
+  transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-family: 'DM Mono', monospace;
+}
+.mstep-btn .ms-frac  { font-size: 12px; color: var(--white); font-weight: 500; }
+.mstep-btn .ms-steps { font-size: 9px; color: var(--dim); }
+.mstep-btn.selected  { border-color: var(--yellow-br); background: var(--yellow-bg); }
+.mstep-btn.selected .ms-frac { color: var(--yellow); }
+.mstep-btn:hover:not(.selected) { border-color: var(--text); }
+.pin-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; margin-bottom: 10px; }
+.pin-card {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 3px; padding: 9px 11px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.pin-card .pin-name { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
+.pin-card .pin-val  {
+  font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700;
+  padding: 3px 8px; border-radius: 3px;
+}
+.pin-card .pin-val.high { color: var(--green); background: var(--green-bg); }
+.pin-card .pin-val.low  { color: var(--dim);   background: var(--surface3); }
+
+/* ══════════════════════════════════════════
+   CONFIG — SPEED
+══════════════════════════════════════════ */
+.speed-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 9px; }
+.speed-preset {
+  font-size: 10px; letter-spacing: 1px; padding: 5px 10px; border-radius: 3px;
+  border: 1px solid var(--border2); background: var(--surface2);
+  cursor: pointer; transition: all 0.15s; color: var(--dim);
+}
+.speed-preset:hover { border-color: var(--cyan); color: var(--cyan); }
+.speed-preset.sel   { border-color: var(--purple-br); background: var(--purple-bg); color: var(--purple); }
+.config-field-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.config-field-row label { font-size: 10px; color: var(--dim); white-space: nowrap; min-width: 72px; }
+.config-input-wrap {
+  flex: 1; display: flex; align-items: stretch;
+  border: 1px solid var(--border2); border-radius: 3px;
+  background: var(--surface2); overflow: hidden; transition: border-color 0.2s; min-width: 0;
+}
+.config-input-wrap:focus-within { border-color: var(--cyan); }
+.config-input-wrap input {
+  flex: 1; background: transparent; color: var(--white); border: none;
+  padding: 7px 9px; font-family: 'DM Mono', monospace; font-size: 12px; outline: none; min-width: 0;
+}
+.config-input-wrap .unit {
+  background: transparent; color: var(--dim); font-size: 10px;
+  padding: 0 8px; display: flex; align-items: center;
+  border-left: 1px solid var(--border2); white-space: nowrap;
+}
+.btn-apply {
+  font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 1px;
+  text-transform: uppercase; border: 1px solid var(--border2); border-radius: 3px;
+  padding: 7px 12px; cursor: pointer; transition: all 0.15s;
+  background: var(--surface2); color: var(--dim); white-space: nowrap; flex-shrink: 0;
+}
+.btn-apply:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* ══════════════════════════════════════════
+   WAVELENGTH
+══════════════════════════════════════════ */
+.wl-goto-bar { display: flex; gap: 10px; align-items: stretch; margin-bottom: 10px; }
+.wl-goto-input-wrap {
+  flex: 1; display: flex; align-items: stretch;
+  border: 1px solid var(--violet-br); border-radius: 3px;
+  background: var(--surface2); overflow: hidden; transition: border-color 0.2s; min-width: 0;
+}
+.wl-goto-input-wrap:focus-within { border-color: var(--violet); }
+.wl-goto-input-wrap input {
+  flex: 1; background: transparent; color: var(--white); border: none;
+  padding: 10px 13px; font-family: 'Syne', sans-serif; font-size: 22px;
+  font-weight: 700; outline: none; min-width: 0;
+}
+.wl-goto-input-wrap .unit {
+  padding: 0 13px; color: var(--violet); font-size: 12px;
+  display: flex; align-items: center; border-left: 1px solid var(--violet-br); white-space: nowrap;
+}
+.wl-interp-hint {
+  font-size: 10px; color: var(--dim); margin-bottom: 12px;
+  padding: 7px 11px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 3px;
+  min-height: 32px; display: flex; align-items: center; gap: 6px;
+}
+.wl-interp-hint strong { color: var(--violet); }
+.wl-record-row {
+  display: flex; gap: 10px; align-items: stretch;
+  padding: 12px 14px; background: var(--surface2);
+  border: 1px dashed var(--violet-br); border-radius: 4px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.wl-record-input-wrap {
+  flex: 1; min-width: 120px; display: flex; align-items: stretch;
+  border: 1px solid var(--violet-br); border-radius: 3px; background: var(--surface); overflow: hidden;
+}
+.wl-record-input-wrap:focus-within { border-color: var(--violet); }
+.wl-record-input-wrap input {
+  flex: 1; background: transparent; color: var(--white); border: none;
+  padding: 9px 12px; font-family: 'DM Mono', monospace; font-size: 14px; outline: none; min-width: 0;
+}
+.wl-record-input-wrap .unit { padding: 0 10px; color: var(--violet); font-size: 10px; display: flex; align-items: center; border-left: 1px solid var(--violet-br); }
+.wl-record-position {
+  font-size: 10px; color: var(--dim); display: flex; align-items: center;
+  padding: 0 10px; white-space: nowrap;
+}
+.wl-record-position strong { color: var(--cyan); margin-left: 4px; }
+.wl-table-wrap { overflow: hidden; border: 1px solid var(--border); border-radius: 4px; }
+.wl-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.wl-table th {
+  background: var(--surface2); color: var(--dim); font-size: 9px;
+  letter-spacing: 2px; text-transform: uppercase; padding: 8px 14px;
+  text-align: left; border-bottom: 1px solid var(--border);
+}
+.wl-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+.wl-table tr:last-child td { border-bottom: none; }
+.wl-table tbody tr:hover td { background: var(--surface2); }
+.wl-table .wl-nm    { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: var(--violet); }
+.wl-table .wl-steps { color: var(--cyan); }
+.wl-table .wl-deg   { color: var(--dim); font-size: 10px; }
+.wl-table .wl-goto  {
+  background: none; border: 1px solid var(--violet-br); border-radius: 2px;
+  color: var(--violet); font-size: 9px; letter-spacing: 1px; padding: 3px 8px;
+  cursor: pointer; font-family: 'DM Mono', monospace; transition: all 0.15s; margin-right: 6px;
+}
+.wl-table .wl-goto:hover { background: var(--violet-bg); border-color: var(--violet); }
+.wl-table .wl-del   {
+  background: none; border: 1px solid var(--border2); border-radius: 2px;
+  color: var(--dim); font-size: 9px; letter-spacing: 1px; padding: 3px 8px;
+  cursor: pointer; font-family: 'DM Mono', monospace; transition: all 0.15s;
+}
+.wl-table .wl-del:hover { border-color: var(--red); color: var(--red); }
+.wl-table-empty { text-align: center; padding: 28px; color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+.wl-io-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.tab-bar { display: flex; gap: 0; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.tab-btn {
+  font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 1.5px;
+  text-transform: uppercase; padding: 8px 16px; cursor: pointer;
+  border: none; background: none; color: var(--dim); transition: all 0.15s;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--violet); }
+.tab-btn.active { color: var(--violet); border-bottom-color: var(--violet); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ══════════════════════════════════════════
+   LOG
+══════════════════════════════════════════ */
+.log {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 3px;
+  height: 130px; overflow-y: auto; padding: 9px 12px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.log-line { display: flex; gap: 10px; font-size: 11px; line-height: 1.5; }
+.log-t    { color: var(--border2); font-size: 10px; flex-shrink: 0; padding-top: 1px; }
+.log-sys  { color: var(--dim); }
+.log-out  { color: var(--cyan); }
+.log-in   { color: var(--green); }
+.log-err  { color: var(--red); }
+.log-stop { color: var(--orange); font-weight: 500; }
+.log-home { color: var(--yellow); }
+.log-cfg  { color: var(--purple); }
+.log-wl   { color: var(--violet); }
+.log-footer { display: flex; justify-content: flex-end; margin-top: 6px; }
+.btn-clear {
+  font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 1px;
+  background: none; border: 1px solid var(--border2); border-radius: 3px;
+  padding: 5px 12px; cursor: pointer; color: var(--dim); transition: all 0.15s;
+}
+.btn-clear:hover { border-color: var(--red); color: var(--red); }
+
+/* ══════════════════════════════════════════
+   POPUP / TOAST
+══════════════════════════════════════════ */
+.popup-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45); z-index: 1000;
+  align-items: center; justify-content: center;
+}
+.popup-overlay.show { display: flex; }
+.popup {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 24px 28px; max-width: 420px; width: 90%;
+  box-shadow: var(--shadow-lg);
+}
+.popup-title {
+  font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px;
+  letter-spacing: 1px; text-transform: uppercase; color: var(--white); margin-bottom: 12px;
+}
+.popup-body { font-size: 12px; color: var(--dim); line-height: 1.6; margin-bottom: 20px; }
+.popup-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.toast-stack {
+  position: fixed; bottom: 22px; right: 22px; z-index: 2000;
+  display: flex; flex-direction: column; gap: 7px; pointer-events: none;
+}
+.toast {
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 4px; padding: 10px 15px;
+  font-size: 11px; letter-spacing: 0.5px; color: var(--white);
+  box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 10px;
+  animation: toast-in 0.25s ease; max-width: 340px;
+}
+.toast.type-ok    { border-left: 3px solid var(--green); }
+.toast.type-err   { border-left: 3px solid var(--red);   }
+.toast.type-info  { border-left: 3px solid var(--cyan);  }
+.toast.type-warn  { border-left: 3px solid var(--yellow);}
+.toast.type-wl    { border-left: 3px solid var(--violet);}
+.toast.fading { animation: toast-out 0.25s ease forwards; }
+@keyframes toast-in  { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+@keyframes toast-out { from{opacity:1;transform:translateX(0)}     to{opacity:0;transform:translateX(20px)} }
+
+.page > * { animation: up 0.3s ease both; }
+.page > *:nth-child(1){animation-delay:.04s}
+.page > *:nth-child(2){animation-delay:.08s}
+.page > *:nth-child(3){animation-delay:.12s}
+.page > *:nth-child(4){animation-delay:.16s}
+.page > *:nth-child(5){animation-delay:.20s}
+@keyframes up { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+@media (max-width: 1100px) { .grid-main { grid-template-columns: 1fr; } }
+@media (max-width: 900px)  { .grid-3 { grid-template-columns: 1fr 1fr; } .grid-4 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px)  {
+  .grid-3, .grid-2, .grid-2-1, .grid-4 { grid-template-columns: 1fr; }
+  .move-inputs { grid-template-columns: 1fr; }
+  .mstep-grid { grid-template-columns: repeat(3, 1fr); }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ══════════════ HEADER ══════════════ -->
+<div class="header">
+  <div class="header-left">
+    <h1>Motor Control</h1>
+    <span class="sub">STEPPER · USB SERIAL · OPTICS</span>
+  </div>
+  <div class="header-right">
+    <div class="badge"        id="mstepBadge">1/16 · 3200/rev</div>
+    <div class="badge green"  id="speedBadge">500 µs</div>
+    <div class="badge cyan"   id="stepsPerRevBadge">3200 steps/rev</div>
+    <div class="badge violet" id="wlTableBadge">0 λ calibrated</div>
+    <button class="theme-toggle" onclick="toggleTheme()">
+      <span id="themeIcon">🌙</span>
+      <span id="themeLabel">Dark</span>
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════ ROW 1: LEFT + RIGHT ══════════════ -->
+<div class="grid-main">
+
+  <!-- ── LEFT ── -->
+  <div style="display:flex;flex-direction:column;gap:12px;">
+
+    <!-- Connection -->
+    <div class="panel">
+      <div class="panel-title">Serial Connection</div>
+      <div class="conn-row">
+        <select id="portSelect"><option value="">— select port —</option></select>
+        <button class="icon-btn" onclick="refreshPorts()" title="Refresh ports">↻</button>
+        <button class="btn btn-cyan" id="connectBtn"    onclick="connect()">Connect</button>
+        <button class="btn btn-red"  id="disconnectBtn" onclick="disconnect()" disabled>Disc.</button>
+      </div>
+      <div class="status-row" id="statusRow">
+        <span class="dot"></span>
+        <span id="statusText">NOT CONNECTED</span>
+      </div>
+    </div>
+
+    <!-- Position cards -->
+    <div class="panel">
+      <div class="panel-title">Position</div>
+      <div class="pos-cards">
+        <div class="pos-card">
+          <div class="pos-label">Current (rel. home)</div>
+          <div class="pos-val"  id="posAngleDisplay">0.0000°</div>
+          <div class="pos-unit" id="posStepsDisplay">0 steps from home</div>
+        </div>
+        <div class="pos-card" id="homeCard">
+          <div class="pos-label">Home</div>
+          <div class="pos-val"  id="homeAngleDisplay">—</div>
+          <div class="pos-unit" id="homeStepsDisplay">not set</div>
+        </div>
+        <div class="pos-card speed-card" style="grid-column:1/-1;">
+          <div class="pos-label">Motor Speed</div>
+          <div class="pos-val"  id="speedDisplay">500 µs</div>
+          <div class="pos-unit" id="speedRpmDisplay">~93 RPM</div>
+        </div>
+        <!-- Wavelength position card -->
+        <div class="pos-card" id="wlPosCard" style="grid-column:1/-1;border-color:var(--violet-br);background:var(--violet-bg);">
+          <div class="pos-label" style="color:var(--violet);">Wavelength at position</div>
+          <div class="pos-val" id="wlPosDisplay" style="color:var(--violet);font-size:22px;">N/A</div>
+          <div class="pos-unit" id="wlPosHint" style="color:var(--violet);opacity:0.7;">load calibration table to resolve λ</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Homing -->
+    <div class="panel">
+      <div class="panel-title">Homing <span class="pill">Limit Switch</span></div>
+      <button class="home-seek-btn" id="homeSeekBtn" onclick="seekHome()" disabled>
+        <span class="icon">⌖</span>
+        <span>Seek Home</span>
+        <span class="sub" id="homeSeekSub">fast sweep → backoff → slow precision creep</span>
+      </button>
+      <div style="font-size:9px;color:var(--dim);line-height:1.7;">
+        Phase 1 — fast CCW sweep until NC switch opens.<br>
+        Phase 2 — backs off CW (releases switch).<br>
+        Phase 3 — slow CCW creep until switch triggers again (precise zero).<br>
+        <strong style="color:var(--red);">Motor CANNOT go CCW past home.</strong>
+        CW travel is hard-limited to <strong style="color:var(--orange);">+35°</strong>.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── RIGHT ── -->
+  <div style="display:flex;flex-direction:column;gap:12px;">
+
+    <!-- Move Amount -->
+    <div class="panel">
+      <div class="panel-title">Move Amount <span class="pill">Select one</span></div>
+      <div class="move-inputs">
+        <div class="move-col" id="angleCol" onclick="activateCol('angle')">
+          <div class="move-col-title">By Angle <span class="active-pill">ACTIVE</span></div>
+          <div class="field-wrap">
+            <input type="number" id="angleInput" placeholder="0.00" min="0" step="0.1"
+                   oninput="onAngleInput()" onclick="activateCol('angle')">
+            <span class="unit">deg °</span>
+          </div>
+          <div class="calc-hint">= <strong id="angleToSteps">0</strong> steps <span id="angleToRevs" style="margin-left:4px;"></span></div>
+          <button class="confirm-btn" onclick="confirmCol(event,'angle')">✓ Use this value</button>
+        </div>
+        <div class="move-col" id="stepsCol" onclick="activateCol('steps')">
+          <div class="move-col-title">By Steps <span class="active-pill">ACTIVE</span></div>
+          <div class="field-wrap">
+            <input type="number" id="stepsInput" placeholder="0" min="1" step="1"
+                   oninput="onStepsInput()" onclick="activateCol('steps')">
+            <span class="unit">steps</span>
+          </div>
+          <div class="calc-hint">= <strong id="stepsToDeg">0.0000°</strong> <span id="stepsToRevs" style="margin-left:4px;"></span></div>
+          <button class="confirm-btn" onclick="confirmCol(event,'steps')">✓ Use this value</button>
+        </div>
+      </div>
+      <div id="confirmedDisplay" style="margin-top:10px;padding:9px 12px;background:var(--surface2);border:1px solid var(--border2);border-radius:3px;font-size:11px;color:var(--dim);display:none;">
+        Ready to move: <strong id="confirmedText" style="color:var(--cyan);"></strong>
+      </div>
+    </div>
+
+    <!-- Direction -->
+    <div class="panel">
+      <div class="panel-title">Direction</div>
+      <div class="dir-grid">
+        <button class="dir-btn cw"  id="cwBtn"  onclick="sendMove('CW')"  disabled>
+          <div class="arrow-wrap">
+            <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+              <path d="M16 4 A12 12 0 0 1 28 16" stroke="var(--cyan)" stroke-width="2.5" stroke-linecap="round"/>
+              <polyline points="28,16 23,10 30,9" fill="var(--cyan)"/>
+              <circle cx="16" cy="16" r="10" stroke="var(--cyan)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.35"/>
+            </svg>
+          </div>
+          <span class="dir-label">Move Left</span>
+          <span class="dir-sub">CW →</span>
+          <span class="dir-steps" id="cwSteps">— steps</span>
+        </button>
+        <button class="dir-btn ccw" id="ccwBtn" onclick="sendMove('CCW')" disabled>
+          <div class="arrow-wrap">
+            <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+              <path d="M16 4 A12 12 0 0 0 4 16" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round"/>
+              <polyline points="4,16 9,10 2,9" fill="var(--red)"/>
+              <circle cx="16" cy="16" r="10" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.35"/>
+            </svg>
+          </div>
+          <span class="dir-label">Move Right</span>
+          <span class="dir-sub">← CCW</span>
+          <span class="dir-steps" id="ccwSteps">— steps</span>
+        </button>
+      </div>
+      <div class="action-row" style="grid-template-columns:1fr 1fr 1fr;">
+        <button class="go-home-btn" id="goHomeBtnAlt" onclick="goHome()" disabled>
+          <span class="icon">⌂</span>
+          <span>Go Home</span>
+          <span class="sub" id="homeBtnSub">not set</span>
+        </button>
+        <button class="go-home-btn" id="moveToMiddleBtn" onclick="moveToMiddle()" disabled style="border-color:var(--cyan-glow);background:var(--cyan-dim);color:var(--cyan);">
+          <span class="icon">◎</span>
+          <span>Move to Middle</span>
+          <span class="sub">17.5° from home</span>
+        </button>
+        <button class="estop-btn" id="estopBtn" onclick="emergencyStop()" disabled>
+          <span class="icon">⬛</span>
+          <span>E-STOP</span>
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════ ROW 2: WAVELENGTH ══════════════ -->
+<div class="panel">
+  <div class="panel-title">Wavelength <span class="pill violet">λ</span></div>
+  <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:8px;">Go to wavelength</div>
+  <div class="wl-goto-bar">
+    <div class="wl-goto-input-wrap">
+      <input type="number" id="wlGotoInput" placeholder="532.0" min="1" step="0.1" oninput="onWlGotoInput()">
+      <span class="unit">nm</span>
+    </div>
+    <button class="btn btn-violet" id="wlGotoBtn" onclick="executeGoToWavelength()" disabled style="font-size:12px;padding:10px 20px;">
+      → Move to λ
+    </button>
+  </div>
+  <div class="wl-interp-hint" id="wlInterpHint">
+    Add calibration points in the Calibration tab, then enter a wavelength here.
+  </div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabBtnUse" onclick="switchTab('use')">Calibration Table</button>
+    <button class="tab-btn" id="tabBtnCal" onclick="switchTab('cal')">Record / Calibrate</button>
+    <button class="tab-btn" id="tabBtnScan" onclick="switchTab('scan')">Continuous Step Test</button>
+  </div>
+  <div class="tab-pane active" id="tabPaneUse">
+    <div class="wl-table-wrap">
+      <table class="wl-table">
+        <thead>
+          <tr>
+            <th>Wavelength</th><th>Steps from Home</th><th>Angle from Home</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="wlTableBody">
+          <tr><td colspan="4" class="wl-table-empty">No calibration points yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="wl-io-row">
+      <button class="btn btn-ghost" onclick="exportCalTable()" style="font-size:10px;">↓ Export JSON lookup table</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('importFileInput').click()" style="font-size:10px;">↑ Import JSON lookup table</button>
+      <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importCalTable(event)">
+      <button class="btn btn-red" onclick="clearCalTable()" style="font-size:10px;margin-left:auto;">✕ Clear Table</button>
+    </div>
+    <!-- Global offset -->
+    <div style="margin-top:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;white-space:nowrap;">Global Step Offset</div>
+      <div class="config-input-wrap" style="max-width:160px;">
+        <input type="number" id="globalOffsetInput" value="0" step="1" placeholder="0" oninput="onGlobalOffsetInput()">
+        <span class="unit">steps</span>
+      </div>
+      <button class="btn-apply" onclick="applyGlobalOffset()">Apply to All</button>
+      <div style="font-size:10px;color:var(--dim);flex:1;" id="globalOffsetHint">Shifts every calibration point by this many steps (e.g. +300 or −300).</div>
+    </div>
+  </div>
+  <div class="tab-pane" id="tabPaneCal">
+    <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:8px;">Record current motor position as a calibration point</div>
+    <div class="wl-record-row">
+      <div class="wl-record-input-wrap">
+        <input type="number" id="wlRecordInput" placeholder="e.g. 488.0" min="1" step="0.1">
+        <span class="unit">nm</span>
+      </div>
+      <div class="wl-record-position">Current pos: <strong id="wlRecordStepsDisplay">0 steps</strong></div>
+      <button class="btn btn-violet" onclick="recordWavelength()">✦ Record λ</button>
+    </div>
+    <div style="font-size:10px;color:var(--dim);line-height:1.7;">
+      1. Run <strong style="color:var(--green);">Seek Home</strong> to establish the zero position.<br>
+      2. Move the motor to the physical position for the desired wavelength.<br>
+      3. Enter the wavelength and click <strong style="color:var(--violet);">Record λ</strong>.<br>
+      4. Repeat for all calibration wavelengths.
+    </div>
+  </div>
+
+  <!-- ══ CONTINUOUS STEP TEST TAB ══ -->
+  <div class="tab-pane" id="tabPaneScan">
+
+    <!-- ── WIRING INSTRUCTIONS ── -->
+    <div style="margin-bottom:14px;padding:12px 15px;background:var(--yellow-bg);border:1px solid var(--yellow-br);border-radius:5px;font-size:10px;color:var(--yellow);line-height:1.9;">
+      <strong style="font-size:11px;letter-spacing:1px;">⚡ TRIGGER WIRING — READ BEFORE CONNECTING</strong><br><br>
+      D12 uses the Arduino's internal <strong>pull-up resistor</strong> — no external resistor needed.
+      The pin idles HIGH and fires on a <strong>falling edge</strong> (HIGH → LOW).<br><br>
+      Connect your 2-wire lab cable:<br>
+      &nbsp;&nbsp;• <strong>Cable trigger wire (pulse output)</strong> → <strong>Arduino D12</strong><br>
+      &nbsp;&nbsp;• <strong>Cable GND</strong> → <strong>Arduino GND</strong> (the GND pin next to D13/AREF is fine)<br><br>
+      Each time the cable pulls D12 LOW → one scan step fires. The 50 ms debounce prevents double-fires.<br><br>
+      <span style="color:var(--green);font-weight:600;">🟢 D13 (built-in LED)</span> is the Arduino's own power-on LED. Do <strong>not</strong> wire anything to D13.<br><br>
+      <strong style="color:var(--yellow);">Testing with a bench power supply:</strong><br>
+      &nbsp;&nbsp;1. Connect supply <strong>(−)</strong> to Arduino <strong>GND</strong>.<br>
+      &nbsp;&nbsp;2. Arm the scan first, then briefly touch the supply <strong>(−) wire</strong> to <strong>D12</strong> to simulate each trigger pulse (pulling it LOW).<br>
+      &nbsp;&nbsp;3. Do <strong>not</strong> connect supply (+) to D12 — the pin is already pulled HIGH internally.
+    </div>
+
+    <!-- ── LIVE DASHBOARD ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
+
+      <!-- Current λ -->
+      <div style="background:var(--surface2);border:2px solid var(--violet-br);border-radius:6px;padding:14px 16px;position:relative;overflow:hidden;">
+        <div style="font-size:9px;letter-spacing:2.5px;color:var(--violet);text-transform:uppercase;margin-bottom:6px;opacity:0.8;">Current λ</div>
+        <div id="scanLiveNm" style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--violet);line-height:1;letter-spacing:-0.5px;">—</div>
+        <div id="scanLiveNmSub" style="font-size:10px;color:var(--dim);margin-top:5px;letter-spacing:1px;">not armed</div>
+        <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:36px;opacity:0.07;">λ</div>
+      </div>
+
+      <!-- Trigger count -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:14px 16px;">
+        <div style="font-size:9px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase;margin-bottom:6px;">Triggers received</div>
+        <div id="scanLiveDone" style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--cyan);">0</div>
+        <div id="scanLiveRemaining" style="font-size:10px;color:var(--dim);margin-top:5px;letter-spacing:1px;">—</div>
+      </div>
+
+      <!-- Arm status -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:14px 16px;">
+        <div style="font-size:9px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase;margin-bottom:8px;">Scan Status</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span class="dot" id="scanDot" style="background:var(--dim);width:9px;height:9px;flex-shrink:0;"></span>
+          <span id="scanStatusText" style="color:var(--dim);letter-spacing:1px;font-size:11px;font-weight:600;">NOT ARMED</span>
+        </div>
+        <div id="scanProgressText" style="color:var(--dim);font-size:9px;letter-spacing:0.5px;"></div>
+      </div>
+
+      <!-- Position + λ after last trigger (full width) -->
+      <div style="grid-column:1/-1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:4px;">Steps from home</div>
+          <span id="scanLiveSteps" style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:var(--cyan);">—</span>
+          <span id="scanLiveDeg" style="font-size:11px;color:var(--dim);margin-left:8px;">—</span>
+        </div>
+        <div style="border-left:1px solid var(--border);padding-left:18px;">
+          <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:4px;">Wavelength at position</div>
+          <span id="scanLiveNmDash" style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:var(--violet);">—</span>
+        </div>
+        <div style="border-left:1px solid var(--border);padding-left:18px;">
+          <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:4px;">Steps per trigger</div>
+          <span id="scanLiveSPT" style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:var(--green);">—</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── SCAN PARAMETERS ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:6px;">Start Wavelength</div>
+        <div class="config-input-wrap" style="border-color:var(--violet-br);">
+          <input type="number" id="scanStartNm" placeholder="e.g. 500" min="1" step="0.1" oninput="onScanParamInput()" style="font-size:16px;font-family:'Syne',sans-serif;font-weight:700;color:var(--violet);">
+          <span class="unit" style="color:var(--violet);">nm</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:6px;">End Wavelength</div>
+        <div class="config-input-wrap" style="border-color:var(--violet-br);">
+          <input type="number" id="scanEndNm" placeholder="e.g. 700" min="1" step="0.1" oninput="onScanParamInput()" style="font-size:16px;font-family:'Syne',sans-serif;font-weight:700;color:var(--violet);">
+          <span class="unit" style="color:var(--violet);">nm</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:6px;">Step Size per Trigger</div>
+        <div class="config-input-wrap" style="border-color:var(--cyan-glow);">
+          <input type="number" id="scanStepNm" placeholder="e.g. 1.0" min="0.01" step="0.1" oninput="onScanParamInput()" style="font-size:16px;font-family:'Syne',sans-serif;font-weight:700;color:var(--cyan);">
+          <span class="unit" style="color:var(--cyan);">nm/trig</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resolved preview -->
+    <div id="scanPreviewBox" style="margin-bottom:14px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--dim);min-height:38px;line-height:1.7;">
+      Enter start wavelength, end wavelength, and step size. A calibration table must be loaded.
+    </div>
+
+    <!-- Action buttons -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-violet" id="scanArmBtn" onclick="scanArm()" disabled style="font-size:11px;padding:10px 22px;">
+        ⚡ Arm Scan
+      </button>
+      <button class="btn btn-ghost" id="scanDisarmBtn" onclick="scanDisarm()" disabled style="font-size:11px;padding:10px 22px;">
+        ✕ Disarm
+      </button>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ══════════════ ROW 3: CONFIG ══════════════ -->
+<div class="panel">
+  <div class="panel-title">Configuration</div>
+  <div class="grid-3">
+
+    <!-- Microstep -->
+    <div>
+      <div style="font-size:9px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase;margin-bottom:10px;">Microstepping</div>
+      <div class="mstep-grid">
+        <button class="mstep-btn" data-idx="0" onclick="selectMstep(0)"><span class="ms-frac">1/1</span><span class="ms-steps">200/rev</span></button>
+        <button class="mstep-btn" data-idx="1" onclick="selectMstep(1)"><span class="ms-frac">1/2</span><span class="ms-steps">400/rev</span></button>
+        <button class="mstep-btn" data-idx="2" onclick="selectMstep(2)"><span class="ms-frac">1/8</span><span class="ms-steps">1600/rev</span></button>
+        <button class="mstep-btn selected" data-idx="3" onclick="selectMstep(3)"><span class="ms-frac">1/16</span><span class="ms-steps">3200/rev</span></button>
+        <button class="mstep-btn" data-idx="4" onclick="selectMstep(4)"><span class="ms-frac">1/32</span><span class="ms-steps">6400/rev</span></button>
+      </div>
+      <div class="pin-row">
+        <div class="pin-card"><div class="pin-name">M0</div><div class="pin-val low"  id="m0disp">LOW</div></div>
+        <div class="pin-card"><div class="pin-name">M1</div><div class="pin-val low"  id="m1disp">LOW</div></div>
+        <div class="pin-card"><div class="pin-name">M2</div><div class="pin-val high" id="m2disp">HIGH</div></div>
+      </div>
+      <div style="font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:7px;">Manual pin override</div>
+      <div style="display:flex;gap:6px;">
+        <button style="flex:1;padding:6px 4px;border-radius:3px;cursor:pointer;border:1px solid var(--border2);background:var(--surface2);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--dim);transition:all 0.15s;" onmouseover="this.style.borderColor='var(--cyan)';this.style.color='var(--cyan)'" onmouseout="this.style.borderColor='';this.style.color=''" onclick="togglePin(0)">M0</button>
+        <button style="flex:1;padding:6px 4px;border-radius:3px;cursor:pointer;border:1px solid var(--border2);background:var(--surface2);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--dim);transition:all 0.15s;" onmouseover="this.style.borderColor='var(--cyan)';this.style.color='var(--cyan)'" onmouseout="this.style.borderColor='';this.style.color=''" onclick="togglePin(1)">M1</button>
+        <button style="flex:1;padding:6px 4px;border-radius:3px;cursor:pointer;border:1px solid var(--border2);background:var(--surface2);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--dim);transition:all 0.15s;" onmouseover="this.style.borderColor='var(--cyan)';this.style.color='var(--cyan)'" onmouseout="this.style.borderColor='';this.style.color=''" onclick="togglePin(2)">M2</button>
+      </div>
+    </div>
+
+    <!-- Speed -->
+    <div>
+      <div style="font-size:9px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase;margin-bottom:10px;">Motor Speed</div>
+      <!-- Speed usage guide -->
+      <div style="margin-bottom:10px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--dim);line-height:1.75;">
+        <strong style="color:var(--white);letter-spacing:0.5px;">When to use each speed:</strong><br>
+        <span style="color:var(--purple);font-weight:600;">Super Slow (1250 µs)</span> — Use once the motor is already at a wavelength and you need to move to another wavelength for testing or switching. Maximum precision.<br>
+        <span style="color:var(--cyan);font-weight:600;">Slow (500 µs)</span> — <strong style="color:var(--cyan);">Default for general use.</strong> Use when the motor is homed and you are navigating to a starting wavelength.<br>
+        <span style="color:var(--red);font-weight:600;">Max (100 µs)</span> — Only use when a fast coarse move is needed. <strong style="color:var(--red);">⚠ Reduced accuracy</strong> — do not use for precise wavelength positioning.
+      </div>
+      <div class="speed-presets">
+        <button class="speed-preset" data-us="1250" onclick="selectSpeedPreset(1250)">Super Slow<br><span style="font-size:9px;">1250µs</span></button>
+        <button class="speed-preset sel" data-us="500" onclick="selectSpeedPreset(500)">Slow<br><span style="font-size:9px;">500µs</span></button>
+        <button class="speed-preset" data-us="100" onclick="selectSpeedPreset(100)">Max<br><span style="font-size:9px;">100µs</span></button>
+      </div>
+      <div class="config-field-row">
+        <label>Step delay</label>
+        <div class="config-input-wrap">
+          <input type="number" id="speedInput" value="500" min="100" max="2500" step="10">
+          <span class="unit">µs</span>
+        </div>
+        <button class="btn-apply" onclick="applySpeed()">Apply</button>
+      </div>
+      <div style="margin-top:8px;font-size:10px;color:var(--dim);">
+        Half-period of step pulse. Lower = faster. Range: 100–2500 µs.<br>
+        Est: <span id="speedEstDisplay" style="color:var(--purple);">~93 RPM</span> at current microstep.
+      </div>
+    </div>
+
+    <!-- Deg/step -->
+    <div>
+      <div style="font-size:9px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase;margin-bottom:10px;">Step Resolution</div>
+      <div class="config-field-row">
+        <label>°/step</label>
+        <div class="config-input-wrap">
+          <input type="number" id="degPerStepInput" value="0.00034010416" step="0.000001" min="0.000001">
+          <span class="unit">°/step</span>
+        </div>
+        <button class="btn-apply" onclick="applyDegPerStep()">Apply</button>
+      </div>
+      <div style="margin-top:8px;font-size:10px;color:var(--dim);">
+        Current: <span id="degPerStepDisplay" style="color:var(--cyan);">0.00034010416 °/step</span><br>
+        <span id="stepsPerRevDisplay" style="color:var(--dim);">2938.4 steps/°</span>
+      </div>
+      <div style="margin-top:10px;padding:8px 10px;background:var(--orange-bg);border:1px solid var(--orange-br);border-radius:3px;font-size:9px;color:var(--orange);line-height:1.6;">
+        ⚠ CW hard limit: <strong>+35°</strong><br>
+        = <strong id="maxStepsDisplay">102910</strong> steps from home.<br>
+        Arduino enforces this in hardware too.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════ ROW 4: LOG ══════════════ -->
+<div class="panel">
+  <div class="panel-title">Output Log</div>
+  <div class="log" id="logBox">
+    <div class="log-line">
+      <span class="log-t">--:--:--</span>
+      <span class="log-sys">Ready. Connect to a port to begin.</span>
+    </div>
+  </div>
+  <div class="log-footer">
+    <button class="btn-clear" onclick="clearLog()">Clear log</button>
+  </div>
+</div>
+
+</div><!-- .page -->
+
+<!-- Microstep popup -->
+<div class="popup-overlay" id="mstepPopup">
+  <div class="popup">
+    <div class="popup-title">Change Microstepping</div>
+    <div class="popup-body" id="mstepPopupBody">—</div>
+    <div class="popup-actions">
+      <button class="btn btn-ghost"  onclick="closePopup('mstepPopup')">Cancel</button>
+      <button class="btn btn-orange" onclick="confirmMstep()">Confirm & Send</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   CONSTANTS & STATE
+═══════════════════════════════════════════════ */
+const API = "http://localhost:5000";
+const BASE_STEPS_PER_REV = 200;
+const MAX_DEG   = 35;          // hard CW travel limit in degrees
+const MAX_STEPS = 102910;      // steps for 35° at default deg/step (0.00034010416)
+
+const MSTEP_TABLE = [
+  { label: "1/1",  div: 1,  stepsPerRev: 200,  m0: 0, m1: 0, m2: 0 },
+  { label: "1/2",  div: 2,  stepsPerRev: 400,  m0: 1, m1: 0, m2: 0 },
+  { label: "1/8",  div: 8,  stepsPerRev: 1600, m0: 1, m1: 1, m2: 0 },
+  { label: "1/16", div: 16, stepsPerRev: 3200, m0: 0, m1: 0, m2: 1 },
+  { label: "1/32", div: 32, stepsPerRev: 6400, m0: 1, m1: 0, m2: 1 },
+];
+
+let DEG_PER_STEP   = 0.00034010416;
+let STEPS_PER_DEG  = 1 / DEG_PER_STEP;
+let mstepIndex     = 3;
+let manualPins     = [0, 0, 1];
+let stepDelayUs    = 500;
+
+let netSteps    = 0;
+let homeIsSet   = false;
+let isRunning   = false;
+let isSeeking   = false;
+
+let confirmedSteps  = 0;
+let confirmedSource = null;
+let pendingMstepIdx = null;
+
+let calTable = [];
+
+/* ═══════════════════════════════════════════════
+   TRAVEL LIMIT HELPERS
+═══════════════════════════════════════════════ */
+function maxStepsForCurrentDeg() {
+  return Math.round(MAX_DEG / DEG_PER_STEP);
+}
+
+function clampedStepsCW(requested) {
+  const remaining = maxStepsForCurrentDeg() - netSteps;
+  return Math.min(requested, Math.max(0, remaining));
+}
+
+function clampedStepsCCW(requested) {
+  return Math.min(requested, Math.max(0, netSteps));
+}
+
+function atCCWLimit() { return homeIsSet && netSteps <= 0; }
+function atCWLimit()  { return homeIsSet && netSteps >= maxStepsForCurrentDeg(); }
+
+
+/* ═══════════════════════════════════════════════
+   LIMIT BUTTON STATE  (track bar removed)
+═══════════════════════════════════════════════ */
+function updateTrackBar() {
+  // dim direction buttons at limits
+  const cwBtn  = document.getElementById("cwBtn");
+  const ccwBtn = document.getElementById("ccwBtn");
+  if (homeIsSet) {
+    cwBtn.classList.toggle("limit-blocked",  atCWLimit());
+    ccwBtn.classList.toggle("limit-blocked", atCCWLimit());
+  } else {
+    cwBtn.classList.remove("limit-blocked");
+    ccwBtn.classList.remove("limit-blocked");
+  }
+  document.getElementById("maxStepsDisplay").textContent = maxStepsForCurrentDeg().toLocaleString();
+}
+
+/* ═══════════════════════════════════════════════
+   THEME
+═══════════════════════════════════════════════ */
+function toggleTheme() {
+  const html = document.documentElement;
+  const dark = html.getAttribute("data-theme") === "dark";
+  html.setAttribute("data-theme", dark ? "light" : "dark");
+  document.getElementById("themeIcon").textContent  = dark ? "🌙" : "☀️";
+  document.getElementById("themeLabel").textContent = dark ? "Dark" : "Light";
+}
+
+/* ═══════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════ */
+function toast(msg, type = "info", duration = 3000) {
+  const stack = document.getElementById("toastStack");
+  const el = document.createElement("div");
+  el.className = `toast type-${type}`;
+  const icons = { ok: "✓", err: "✕", info: "ℹ", warn: "⚠", wl: "λ" };
+  el.innerHTML = `<span>${icons[type] || "·"}</span><span>${msg}</span>`;
+  stack.appendChild(el);
+  setTimeout(() => { el.classList.add("fading"); setTimeout(() => el.remove(), 280); }, duration);
+}
+
+/* ═══════════════════════════════════════════════
+   POPUP / TABS
+═══════════════════════════════════════════════ */
+function openPopup(id)  { document.getElementById(id).classList.add("show"); }
+function closePopup(id) { document.getElementById(id).classList.remove("show"); }
+function switchTab(tab) {
+  document.getElementById("tabBtnUse").classList.toggle("active", tab === "use");
+  document.getElementById("tabBtnCal").classList.toggle("active", tab === "cal");
+  document.getElementById("tabBtnScan").classList.toggle("active", tab === "scan");
+  document.getElementById("tabPaneUse").classList.toggle("active", tab === "use");
+  document.getElementById("tabPaneCal").classList.toggle("active", tab === "cal");
+  document.getElementById("tabPaneScan").classList.toggle("active", tab === "scan");
+  if (tab === "scan") onScanParamInput();
+}
+
+/* ═══════════════════════════════════════════════
+   UNIT CONVERSIONS
+═══════════════════════════════════════════════ */
+function stepsToDeg(s) { return s * DEG_PER_STEP; }
+function degToSteps(d) { return Math.round(d * STEPS_PER_DEG); }
+function fmtDeg(d)     { return d.toFixed(4) + "°"; }
+function revHint(steps) {
+  const spr = MSTEP_TABLE[mstepIndex].stepsPerRev;
+  const r   = Math.abs(steps) / spr;
+  if (r === 0) return "";
+  return r >= 1 ? `(${r.toFixed(2)} rev)` : `(${(r * 100).toFixed(1)}% rev)`;
+}
+function estRPM(delayUs, stepsPerRev) {
+  const stepsPerSec = 1e6 / (delayUs * 2);
+  return ((stepsPerSec / stepsPerRev) * 60).toFixed(0);
+}
+
+/* ═══════════════════════════════════════════════
+   WAVELENGTH INTERPOLATION
+═══════════════════════════════════════════════ */
+// Forward: nm → steps. Reverse (bySteps=true): steps value passed as first arg → {nm}
+function resolveWavelength(nmOrSteps, bySteps) {
+  if (calTable.length === 0) return null;
+  const sorted = [...calTable].sort((a, b) => a.nm - b.nm);
+
+  if (bySteps) {
+    // Reverse interpolation: steps → nm
+    const s = nmOrSteps;
+    const sortedBySteps = [...sorted].sort((a, b) => a.steps - b.steps);
+    const exact = sortedBySteps.find(e => e.steps === s);
+    if (exact) return { nm: exact.nm, exact: true, interpolated: false };
+    if (s < sortedBySteps[0].steps || s > sortedBySteps[sortedBySteps.length-1].steps)
+      return { error: "outside range" };
+    let lo = null, hi = null;
+    for (let i = 0; i < sortedBySteps.length - 1; i++) {
+      if (sortedBySteps[i].steps <= s && sortedBySteps[i+1].steps >= s) {
+        lo = sortedBySteps[i]; hi = sortedBySteps[i+1]; break;
+      }
+    }
+    if (!lo || !hi) return { error: "could not bracket" };
+    const frac = (s - lo.steps) / (hi.steps - lo.steps);
+    const nm   = lo.nm + frac * (hi.nm - lo.nm);
+    return { nm, exact: false, interpolated: true };
+  }
+
+  // Forward: nm → steps
+  const nm   = nmOrSteps;
+  const exact = sorted.find(e => e.nm === nm);
+  if (exact) return { steps: exact.steps, exact: true, interpolated: false };
+  if (nm < sorted[0].nm) return { error: `Below minimum calibrated wavelength (${sorted[0].nm} nm)` };
+  if (nm > sorted[sorted.length - 1].nm) return { error: `Above maximum calibrated wavelength (${sorted[sorted.length - 1].nm} nm)` };
+  let lo = null, hi = null;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (sorted[i].nm <= nm && sorted[i + 1].nm >= nm) { lo = sorted[i]; hi = sorted[i + 1]; break; }
+  }
+  if (!lo || !hi) return { error: "Could not bracket wavelength" };
+  const fraction = (nm - lo.nm) / (hi.nm - lo.nm);
+  const steps    = Math.round(lo.steps + fraction * (hi.steps - lo.steps));
+  return { steps, exact: false, interpolated: true, loNm: lo.nm, hiNm: hi.nm, fraction };
+}
+
+/* ═══════════════════════════════════════════════
+   CALIBRATION TABLE
+═══════════════════════════════════════════════ */
+function recordWavelength() {
+  if (!homeIsSet) { toast("Set home first (use Seek Home) before recording calibration", "warn"); return; }
+  const nm = parseFloat(document.getElementById("wlRecordInput").value);
+  if (!nm || nm <= 0) { toast("Enter a valid wavelength (nm)", "warn"); return; }
+  const existing = calTable.findIndex(e => e.nm === nm);
+  if (existing >= 0) calTable.splice(existing, 1);
+  calTable.push({ nm, steps: netSteps });
+  calTable.sort((a, b) => a.nm - b.nm);
+  toast(`Recorded λ=${nm} nm → ${netSteps} steps from home`, "wl", 4000);
+  log("wl", `Calibration: λ=${nm} nm → ${netSteps >= 0 ? "+" : ""}${netSteps} steps from home (${fmtDeg(stepsToDeg(Math.abs(netSteps)))})`);
+  document.getElementById("wlRecordInput").value = "";
+  renderCalTable(); onWlGotoInput();
+}
+
+function renderCalTable() {
+  const tbody = document.getElementById("wlTableBody");
+  if (calTable.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="wl-table-empty">No calibration points yet. Switch to "Record / Calibrate" tab to build your table.</td></tr>`;
+    document.getElementById("wlTableBadge").textContent = `0 λ calibrated`;
+    updateScanPlaceholders();
+    return;
+  }
+  tbody.innerHTML = calTable.map(e => {
+    const deg = stepsToDeg(Math.abs(e.steps));
+    const dir = e.steps >= 0 ? "CW" : "CCW";
+    return `
+      <tr>
+        <td><span class="wl-nm">${e.nm}</span> <span style="font-size:9px;color:var(--dim);">nm</span></td>
+        <td><span class="wl-steps">${e.steps >= 0 ? "+" : ""}${e.steps.toLocaleString()}</span> <span style="color:var(--dim);font-size:9px;">${dir}</span></td>
+        <td class="wl-deg">${fmtDeg(deg)} from home</td>
+        <td style="white-space:nowrap;">
+          <button class="wl-goto" onclick="gotoFromTable(${e.nm})">→ Go</button>
+          <button class="wl-del"  onclick="deleteCalPoint(${e.nm})">✕ Del</button>
+          <span style="display:inline-flex;align-items:center;gap:3px;margin-left:4px;">
+            <input type="number" id="adjInput_${e.nm}" placeholder="±steps" step="1"
+              style="width:72px;background:var(--surface2);border:1px solid var(--border2);border-radius:2px;
+                     color:var(--white);font-family:'DM Mono',monospace;font-size:10px;padding:3px 6px;outline:none;">
+            <button class="wl-goto" style="border-color:var(--cyan-glow);color:var(--cyan);" onclick="applyAdjustment(${e.nm})">± Adj</button>
+          </span>
+        </td>
+      </tr>`;
+  }).join("");
+  document.getElementById("wlTableBadge").textContent = `${calTable.length} λ calibrated`;
+  updateScanPlaceholders();
+}
+
+/* ═══════════════════════════════════════════════
+   SCAN PLACEHOLDER UPDATER
+═══════════════════════════════════════════════ */
+function updateScanPlaceholders() {
+  const startInput = document.getElementById("scanStartNm");
+  const endInput   = document.getElementById("scanEndNm");
+  if (!startInput || !endInput) return;
+  if (calTable.length === 0) {
+    startInput.placeholder = "N/A";
+    endInput.placeholder   = "N/A";
+  } else {
+    const sorted = [...calTable].sort((a, b) => a.nm - b.nm);
+    startInput.placeholder = sorted[0].nm.toFixed(1);
+    endInput.placeholder   = sorted[sorted.length - 1].nm.toFixed(1);
+  }
+}
+
+function deleteCalPoint(nm) {
+  calTable = calTable.filter(e => e.nm !== nm);
+  toast(`Removed calibration for λ=${nm} nm`, "info");
+  log("wl", `Removed calibration point: λ=${nm} nm`);
+  renderCalTable(); onWlGotoInput();
+}
+
+function clearCalTable() {
+  if (calTable.length === 0) { toast("Table is already empty", "info"); return; }
+  calTable = [];
+  toast("Calibration table cleared", "warn");
+  log("wl", "Calibration table cleared");
+  renderCalTable(); onWlGotoInput();
+}
+
+async function gotoFromTable(nm) {
+  document.getElementById("wlGotoInput").value = nm;
+  onWlGotoInput();
+  await executeGoToWavelength();
+}
+
+function exportCalTable() {
+  if (calTable.length === 0) { toast("Nothing to export", "warn"); return; }
+  const exportData = { version: 1, exported: new Date().toISOString(), degPerStep: DEG_PER_STEP, mstepLabel: MSTEP_TABLE[mstepIndex].label, calibration: calTable };
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `wavelength-cal-${new Date().toISOString().slice(0,10)}.json`; a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`Exported ${calTable.length} calibration points`, "ok");
+}
+
+function importCalTable(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.calibration || !Array.isArray(data.calibration)) { toast("Invalid JSON", "err"); return; }
+      const loaded = data.calibration.filter(p => typeof p.nm === "number" && typeof p.steps === "number");
+      if (loaded.length === 0) { toast("No valid calibration points found", "err"); return; }
+      calTable = loaded.sort((a, b) => a.nm - b.nm);
+      renderCalTable(); onWlGotoInput();
+      toast(`Imported ${loaded.length} calibration points from ${file.name}`, "wl", 5000);
+      if (data.degPerStep && Math.abs(data.degPerStep - DEG_PER_STEP) > 1e-9)
+        toast(`⚠ Imported table used ${data.degPerStep.toFixed(8)} °/step — verify your setting`, "warn", 7000);
+    } catch(err) { toast("Failed to parse JSON file", "err"); }
+  };
+  reader.readAsText(file); event.target.value = "";
+}
+
+/* ═══════════════════════════════════════════════
+   GO TO WAVELENGTH
+═══════════════════════════════════════════════ */
+async function executeGoToWavelength() {
+  if (!homeIsSet) { toast("Home not set — run Seek Home first", "warn"); return; }
+  const nm = parseFloat(document.getElementById("wlGotoInput").value);
+  if (!nm || nm <= 0) { toast("Enter a valid wavelength", "warn"); return; }
+  const result = resolveWavelength(nm);
+  if (!result)      { toast("No calibration data available", "warn"); return; }
+  if (result.error) { toast(result.error, "err"); return; }
+
+  const targetSteps = result.steps;
+  // enforce limits on target
+  const clampedTarget = Math.max(0, Math.min(maxStepsForCurrentDeg(), targetSteps));
+  if (clampedTarget !== targetSteps) {
+    toast(`⚠ Target ${targetSteps} steps clamped to travel limits (0–${maxStepsForCurrentDeg()})`, "warn", 5000);
+  }
+  const delta     = clampedTarget - netSteps;
+  if (delta === 0) { toast(`Already at λ=${nm} nm`, "info"); return; }
+  const direction = delta > 0 ? "CW" : "CCW";
+  const stepsAbs  = Math.abs(delta);
+  const tag       = result.interpolated ? " [interpolated]" : " [exact]";
+  log("wl", `Going to λ=${nm} nm → target ${clampedTarget} steps from home, moving ${direction} ${stepsAbs} steps${tag}`);
+  toast(`Moving to λ=${nm} nm · ${direction} ${stepsAbs} steps${tag}`, "wl", 4000);
+  await executeMove(direction, stepsAbs, `λ=${nm} nm · ${direction} · ${stepsAbs} steps`, "wl");
+}
+
+function onWlGotoInput() {
+  const nm  = parseFloat(document.getElementById("wlGotoInput").value);
+  const btn = document.getElementById("wlGotoBtn");
+  const hint = document.getElementById("wlInterpHint");
+  if (!nm || nm <= 0 || calTable.length === 0) {
+    hint.innerHTML = calTable.length === 0 ? "Add calibration points in the Calibration tab first." : "Enter a wavelength to see the resolved step position.";
+    btn.disabled = true; return;
+  }
+  const result = resolveWavelength(nm);
+  if (!result) { hint.textContent = "No calibration data."; btn.disabled = true; return; }
+  if (result.error) { hint.innerHTML = `<span style="color:var(--red);">⚠ ${result.error}</span>`; btn.disabled = true; return; }
+  const delta = result.steps - netSteps;
+  const dir   = delta >= 0 ? "CW" : "CCW";
+  if (result.exact) {
+    hint.innerHTML = `<strong>${result.steps.toLocaleString()} steps</strong> from home (exact) · move <strong>${Math.abs(delta).toLocaleString()}</strong> steps ${dir}`;
+  } else {
+    hint.innerHTML = `<strong>${result.steps.toLocaleString()} steps</strong> from home (interpolated between ${result.loNm} nm and ${result.hiNm} nm, ${(result.fraction*100).toFixed(1)}% along) · move <strong>${Math.abs(delta).toLocaleString()}</strong> steps ${dir}`;
+  }
+  btn.disabled = isRunning || isSeeking;
+}
+
+/* ═══════════════════════════════════════════════
+   MOVE AMOUNT COLUMNS
+═══════════════════════════════════════════════ */
+function onAngleInput() {
+  const deg   = parseFloat(document.getElementById("angleInput").value) || 0;
+  const steps = degToSteps(deg);
+  document.getElementById("angleToSteps").textContent = steps.toLocaleString();
+  document.getElementById("angleToRevs").textContent  = revHint(steps);
+}
+function onStepsInput() {
+  const steps = parseInt(document.getElementById("stepsInput").value) || 0;
+  document.getElementById("stepsToDeg").textContent  = fmtDeg(stepsToDeg(steps));
+  document.getElementById("stepsToRevs").textContent = revHint(steps);
+}
+function activateCol(col) {
+  document.getElementById("angleCol").classList.toggle("active", col === "angle");
+  document.getElementById("stepsCol").classList.toggle("active", col === "steps");
+}
+function confirmCol(event, col) {
+  event.stopPropagation(); activateCol(col);
+  let steps = 0, label = "";
+  if (col === "angle") {
+    const deg = parseFloat(document.getElementById("angleInput").value);
+    if (!deg || deg <= 0) { toast("Enter a valid angle first", "warn"); return; }
+    steps = degToSteps(deg); label = `${deg.toFixed(4)}° = ${steps.toLocaleString()} steps`;
+  } else {
+    steps = parseInt(document.getElementById("stepsInput").value);
+    if (!steps || steps <= 0) { toast("Enter a valid step count first", "warn"); return; }
+    label = `${steps.toLocaleString()} steps = ${fmtDeg(stepsToDeg(steps))}`;
+  }
+  confirmedSteps  = steps; confirmedSource = col;
+  document.getElementById("confirmedText").textContent      = label;
+  document.getElementById("confirmedDisplay").style.display = "block";
+  document.getElementById("cwSteps").innerHTML  = `<span>${steps.toLocaleString()}</span> steps`;
+  document.getElementById("ccwSteps").innerHTML = `<span>${steps.toLocaleString()}</span> steps`;
+  toast(`Value confirmed: ${label} — click Left or Right to move`, "ok", 2500);
+}
+
+/* ═══════════════════════════════════════════════
+   CONNECTION
+═══════════════════════════════════════════════ */
+async function refreshPorts() {
+  try {
+    const ports = await (await fetch(`${API}/ports`)).json();
+    const sel   = document.getElementById("portSelect");
+    sel.innerHTML = '<option value="">— select port —</option>';
+    ports.forEach(p => { const o = document.createElement("option"); o.value = o.textContent = p; sel.appendChild(o); });
+    toast(`Found ${ports.length} port(s)`, "info", 2000);
+    log("sys", `Found ${ports.length} port(s)`);
+  } catch {
+    toast("Cannot reach bridge — is bridge.py running?", "err");
+    log("err", "Cannot reach bridge — is bridge.py running?");
+  }
+}
+async function connect() {
+  const port = document.getElementById("portSelect").value;
+  if (!port) { toast("Select a port first", "warn"); return; }
+  try {
+    const data = await (await fetch(`${API}/connect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ port }) })).json();
+    if (data.ok) { setConnected(true); toast(`Connected → ${port}`, "ok"); log("sys", `Connected → ${port}`); }
+    else         { toast(data.error, "err"); log("err", data.error); }
+  } catch { toast("Bridge unreachable — start bridge.py first", "err"); log("err", "Bridge unreachable"); }
+}
+async function disconnect() {
+  await fetch(`${API}/disconnect`, { method: "POST" }).catch(() => {});
+  setConnected(false); toast("Disconnected", "info"); log("sys", "Disconnected");
+}
+
+/* ═══════════════════════════════════════════════
+   MOVE CONTROL  (with UI-side limit enforcement)
+═══════════════════════════════════════════════ */
+function sendMove(direction) {
+  if (!confirmedSteps || confirmedSteps <= 0) {
+    toast("Confirm a move amount first (use ✓ buttons in Move Amount)", "warn"); return;
+  }
+
+  let steps = confirmedSteps;
+
+  if (direction === "CCW") {
+    if (atCCWLimit()) { toast("Already at CCW limit (home) — cannot move right", "warn"); return; }
+    const clamped = clampedStepsCCW(steps);
+    if (clamped < steps) {
+      toast(`CCW clamped to ${clamped} steps (would hit home limit)`, "warn");
+      steps = clamped;
+    }
+    if (steps === 0) { toast("Already at home — no steps to move CCW", "info"); return; }
+  } else {
+    if (atCWLimit()) { toast("Already at CW limit (+35°) — cannot move left", "warn"); return; }
+    const clamped = clampedStepsCW(steps);
+    if (clamped < steps) {
+      toast(`CW clamped to ${clamped} steps (would exceed +35° limit)`, "warn");
+      steps = clamped;
+    }
+    if (steps === 0) { toast("Already at CW limit — no steps to move CW", "info"); return; }
+  }
+
+  const deg = stepsToDeg(steps);
+  executeMove(direction, steps, `${direction === "CW" ? "Move Left" : "Move Right"} · ${fmtDeg(deg)} · ${steps} steps`, "out");
+}
+
+async function goHome() {
+  if (!homeIsSet) { toast("Home not set — run Seek Home first", "warn"); return; }
+  if (netSteps === 0) { toast("Already at home", "info"); return; }
+  const direction = netSteps > 0 ? "CCW" : "CW";
+  const stepsBack = Math.abs(netSteps);
+  await executeMove(direction, stepsBack, `↩ Going home · ${direction} · ${stepsBack} steps`, "home");
+}
+
+async function executeMove(direction, steps, logMsg, logType) {
+  setRunning(true); log(logType, logMsg);
+
+  const isCW = direction === "CW";
+  const maxS = maxStepsForCurrentDeg();
+
+  // ── Fetch ──────────────────────────────────────────────────────
+  try {
+    const data = await (await fetch(`${API}/move`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction, steps })
+    })).json();
+
+    if (data.ok) {
+      const atHome  = data.log.some(l => l === "AT_HOME");
+      const atCwLim = data.log.some(l => l === "AT_CW_LIMIT");
+      const stopped = data.log.some(l => l.startsWith("Stopped."));
+      const posLine = data.log.find(l => l.startsWith("POS:"));
+
+      if (atHome) {
+        netSteps = 0; homeIsSet = true;
+        toast("⌂ Limit switch hit — re-homed to 0°", "warn", 4000);
+        log("home", "⌂ Limit switch hit during move — position reset to home (0 steps).");
+      } else if (atCwLim) {
+        netSteps = maxStepsForCurrentDeg();
+        toast(`⬛ CW hard limit reached (+35°) — stopped at max`, "warn", 4000);
+        log("stop", "AT_CW_LIMIT — motor stopped at +35°. Home position unchanged.");
+      } else if (stopped && posLine) {
+        netSteps = parseInt(posLine.split(":")[1]);
+        toast("Stopped — position updated from Arduino", "warn");
+        log("stop", "Stopped — position updated from Arduino");
+      } else {
+        netSteps += (isCW ? 1 : -1) * steps;
+        toast(`Move complete · ${fmtDeg(stepsToDeg(steps))}`, "ok");
+      }
+      data.log.forEach(l => {
+        if (!l.startsWith("POS:") && l !== "AT_HOME" && l !== "AT_CW_LIMIT")
+          log("in", l);
+      });
+    } else {
+      toast(data.error, "err"); log("err", data.error);
+    }
+  } catch {
+    toast("Lost connection to bridge", "err"); log("err", "Lost connection to bridge");
+  }
+
+  updateTrackBar();
+  updatePositionDisplay(); updateHomeDisplay(); updateWlRecordPositionDisplay(); onWlGotoInput();
+  setRunning(false);
+}
+
+async function emergencyStop() {
+  const btn = document.getElementById("estopBtn");
+  btn.classList.add("firing"); setTimeout(() => btn.classList.remove("firing"), 300);
+  toast("⬛ EMERGENCY STOP", "err", 4000); log("stop", "⬛ EMERGENCY STOP");
+  try {
+    const data = await (await fetch(`${API}/stop`, { method: "POST" })).json();
+    if (data.ok) data.log.forEach(l => { if (!l.startsWith("POS:")) log("stop", l); });
+  } catch { log("err", "Could not reach bridge"); }
+  isRunning = false; isSeeking = false;
+  setRunning(false); setSeeking(false);
+  const _ec = !document.getElementById("disconnectBtn").disabled;
+  if (_ec) {
+    document.getElementById("cwBtn").disabled = false;
+    document.getElementById("ccwBtn").disabled = false;
+    document.getElementById("homeSeekBtn").disabled = false;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   LIMIT-SWITCH HOMING
+═══════════════════════════════════════════════ */
+async function seekHome() {
+  const connected = !document.getElementById("disconnectBtn").disabled;
+  if (!connected) { toast("Connect to Arduino first", "warn"); return; }
+  if (isRunning || isSeeking) { toast("Motor is busy", "warn"); return; }
+  setSeeking(true);
+  log("home", "⌖ Starting limit-switch homing sequence (fast → backoff → slow creep)…");
+  toast("Homing — fast sweep, then precision creep…", "info", 60000);
+  try {
+    const data = await (await fetch(`${API}/home_seek`, { method: "POST" })).json();
+    if (data.log) data.log.forEach(l => log("home", l));
+    if (data.ok && data.homed) {
+      netSteps = 0; homeIsSet = true;
+      updatePositionDisplay(); updateHomeDisplay(); updateWlRecordPositionDisplay(); updateTrackBar(); onWlGotoInput();
+      toast("✓ Homed — position is now 0.0000°", "ok", 5000);
+      log("home", "⌂ Home established. CCW hard limit active. CW soft limit: +35°.");
+    } else {
+      toast(`Homing failed: ${data.error || "unknown error"}`, "err", 6000);
+      log("err", `Homing failed: ${data.error}`);
+    }
+  } catch (e) {
+    toast("Lost connection during homing", "err");
+    log("err", "Lost connection during homing sequence: " + (e && e.message ? e.message : e));
+  } finally {
+    // Always release the seeking lock so the UI is never permanently frozen.
+    setSeeking(false);
+    // Re-enforce connected button state in case setSeeking left things wrong.
+    const stillConnected = !document.getElementById("disconnectBtn").disabled;
+    if (stillConnected) {
+      document.getElementById("cwBtn").disabled  = false;
+      document.getElementById("ccwBtn").disabled = false;
+      document.getElementById("homeSeekBtn").disabled = false;
+      document.getElementById("wlGotoBtn").disabled   = !homeIsSet;
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   MICROSTEP
+═══════════════════════════════════════════════ */
+function selectMstep(idx) {
+  pendingMstepIdx = idx;
+  const ms = MSTEP_TABLE[idx];
+  document.getElementById("mstepPopupBody").innerHTML =
+    `Switching to <strong>${ms.label} microstepping</strong> (${ms.stepsPerRev} steps/rev).<br><br>` +
+    `Hardware pins: M0 = <strong>${ms.m0 ? "HIGH" : "LOW"}</strong> &nbsp; M1 = <strong>${ms.m1 ? "HIGH" : "LOW"}</strong> &nbsp; M2 = <strong>${ms.m2 ? "HIGH" : "LOW"}</strong><br><br>` +
+    `Note: changing microstep changes how many steps = 35°. The position bar will update automatically.`;
+  openPopup("mstepPopup");
+}
+async function confirmMstep() {
+  closePopup("mstepPopup");
+  const idx = pendingMstepIdx; const ms = MSTEP_TABLE[idx];
+  mstepIndex = idx; manualPins = [ms.m0, ms.m1, ms.m2];
+  updateMstepUI();
+  toast(`Microstepping → ${ms.label} (${ms.stepsPerRev} steps/rev)`, "ok");
+  log("cfg", `Microstep → ${ms.label} · M0=${ms.m0} M1=${ms.m1} M2=${ms.m2}`);
+  if (!document.getElementById("disconnectBtn").disabled) {
+    try {
+      const data = await (await fetch(`${API}/set_mstep`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ index: idx }) })).json();
+      if (data.ok) data.log.forEach(l => log("in", l)); else log("err", data.error);
+    } catch { log("err", "Could not send microstep to bridge"); }
+  } else { log("cfg", "Not connected — Arduino NOT updated."); }
+}
+function updateMstepUI() {
+  const ms = MSTEP_TABLE[mstepIndex];
+  document.querySelectorAll(".mstep-btn").forEach((b, i) => b.classList.toggle("selected", i === mstepIndex));
+  setPinDisplay(0, manualPins[0]); setPinDisplay(1, manualPins[1]); setPinDisplay(2, manualPins[2]);
+  document.getElementById("mstepBadge").textContent      = `${ms.label} · ${ms.stepsPerRev}/rev`;
+  document.getElementById("stepsPerRevBadge").textContent = `${ms.stepsPerRev} steps/rev`;
+  onAngleInput(); onStepsInput(); updateSpeedEst(); updateTrackBar();
+}
+function setPinDisplay(pin, val) {
+  const ids = ["m0disp","m1disp","m2disp"]; const el = document.getElementById(ids[pin]);
+  el.textContent = val ? "HIGH" : "LOW"; el.className = "pin-val " + (val ? "high" : "low");
+}
+async function togglePin(pin) {
+  manualPins[pin] = manualPins[pin] ? 0 : 1; setPinDisplay(pin, manualPins[pin]);
+  toast(`M${pin} → ${manualPins[pin] ? "HIGH" : "LOW"} (manual override)`, "warn");
+  log("cfg", `Manual override: M${pin} = ${manualPins[pin] ? "HIGH" : "LOW"}`);
+  if (!document.getElementById("disconnectBtn").disabled) {
+    try {
+      const data = await (await fetch(`${API}/set_mpins`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ m0: manualPins[0], m1: manualPins[1], m2: manualPins[2] }) })).json();
+      if (data.ok) data.log.forEach(l => log("in", l));
+    } catch { log("err", "Could not send pin override"); }
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   SPEED
+═══════════════════════════════════════════════ */
+function selectSpeedPreset(us) {
+  document.getElementById("speedInput").value = us;
+  document.querySelectorAll(".speed-preset").forEach(b => b.classList.toggle("sel", parseInt(b.dataset.us) === us));
+  applySpeed();
+}
+async function applySpeed() {
+  let val = parseInt(document.getElementById("speedInput").value);
+  if (!val || isNaN(val)) { toast("Enter a valid step delay", "warn"); return; }
+  if (val < 100) { val = 100; document.getElementById("speedInput").value = 100; toast("Minimum speed is 100 µs — clamped", "warn"); }
+  if (val > 2500) { val = 2500; document.getElementById("speedInput").value = 2500; toast("Maximum speed is 2500 µs — clamped", "warn"); }
+  stepDelayUs = val;
+  document.getElementById("speedDisplay").textContent = `${val} µs`;
+  document.getElementById("speedBadge").textContent   = `${val} µs`;
+  updateSpeedEst(); log("cfg", `Speed → ${val} µs step delay`);
+  if (!document.getElementById("disconnectBtn").disabled) {
+    try {
+      const data = await (await fetch(`${API}/set_speed`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delay_us: val }) })).json();
+      if (data.ok) { data.log.forEach(l => log("in", l)); toast(`Speed set → ${val} µs`, "ok"); }
+      else { toast(data.error, "err"); log("err", data.error); }
+    } catch { log("err", "Could not send speed to bridge"); }
+  } else { toast(`Speed configured (connect to apply)`, "info"); }
+}
+function updateSpeedEst() {
+  const spr = MSTEP_TABLE[mstepIndex].stepsPerRev;
+  const rpm = estRPM(stepDelayUs, spr);
+  document.getElementById("speedRpmDisplay").textContent = `~${rpm} RPM`;
+  document.getElementById("speedEstDisplay").textContent = `~${rpm} RPM`;
+}
+
+/* ═══════════════════════════════════════════════
+   DEG/STEP
+═══════════════════════════════════════════════ */
+function applyDegPerStep() {
+  const val = parseFloat(document.getElementById("degPerStepInput").value);
+  if (!val || val <= 0) { toast("Invalid °/step value", "warn"); return; }
+  DEG_PER_STEP  = val; STEPS_PER_DEG = 1 / val;
+  document.getElementById("degPerStepDisplay").textContent  = val.toFixed(8) + " °/step";
+  document.getElementById("stepsPerRevDisplay").textContent = (1/val).toFixed(1) + " steps/°";
+  onAngleInput(); onStepsInput(); updatePositionDisplay(); updateTrackBar();
+  toast(`°/step updated → ${val.toFixed(8)}`, "ok"); log("cfg", `°/step → ${val.toFixed(8)}`);
+}
+
+/* ═══════════════════════════════════════════════
+   POSITION DISPLAY
+═══════════════════════════════════════════════ */
+function updatePositionDisplay() {
+  const deg = stepsToDeg(netSteps);
+  document.getElementById("posAngleDisplay").textContent = fmtDeg(Math.abs(deg)) + (netSteps < 0 ? " CCW" : netSteps > 0 ? " CW" : "");
+  document.getElementById("posStepsDisplay").textContent = `${netSteps >= 0 ? "+" : ""}${netSteps} steps from home`;
+  updateWlPositionCard();
+}
+
+function updateWlPositionCard() {
+  const card    = document.getElementById("wlPosCard");
+  const display = document.getElementById("wlPosDisplay");
+  const hint    = document.getElementById("wlPosHint");
+  if (calTable.length === 0) {
+    display.textContent = "N/A";
+    hint.textContent    = "load calibration table to resolve λ";
+    card.style.borderColor = "var(--border)";
+    card.style.background  = "var(--surface2)";
+    display.style.color    = "var(--dim)";
+    hint.style.color       = "var(--dim)";
+    return;
+  }
+  const result = resolveWavelength(netSteps, true); // resolve by steps
+  if (result && !result.error) {
+    display.textContent    = result.nm.toFixed(3) + " nm";
+    hint.textContent       = result.interpolated ? "interpolated from table" : "exact calibration point";
+    card.style.borderColor = "var(--violet-br)";
+    card.style.background  = "var(--violet-bg)";
+    display.style.color    = "var(--violet)";
+    hint.style.color       = "var(--violet)";
+    hint.style.opacity     = "0.7";
+  } else {
+    display.textContent    = "N/A";
+    hint.textContent       = "position outside calibrated range";
+    card.style.borderColor = "var(--border)";
+    card.style.background  = "var(--surface2)";
+    display.style.color    = "var(--dim)";
+    hint.style.color       = "var(--dim)";
+  }
+}
+function updateWlRecordPositionDisplay() {
+  document.getElementById("wlRecordStepsDisplay").textContent = `${netSteps >= 0 ? "+" : ""}${netSteps} steps`;
+}
+function updateHomeDisplay() {
+  const homeCard = document.getElementById("homeCard");
+  if (!homeIsSet) {
+    homeCard.classList.remove("home-set");
+    document.getElementById("homeAngleDisplay").textContent = "—";
+    document.getElementById("homeStepsDisplay").textContent = "not set";
+    document.getElementById("homeBtnSub").textContent       = "not set";
+  } else {
+    homeCard.classList.add("home-set");
+    document.getElementById("homeAngleDisplay").textContent = "0.0000°";
+    document.getElementById("homeStepsDisplay").textContent = "set ✓";
+    document.getElementById("homeBtnSub").textContent       = "0.0000°";
+  }
+  const connected  = !document.getElementById("disconnectBtn").disabled;
+  const canGoHome  = homeIsSet && connected && !isRunning && !isSeeking && netSteps !== 0;
+  document.getElementById("goHomeBtnAlt").disabled = !canGoHome;
+  const canMiddle  = homeIsSet && connected && !isRunning && !isSeeking;
+  const midBtn = document.getElementById("moveToMiddleBtn");
+  if (midBtn) midBtn.disabled = !canMiddle;
+}
+
+/* ═══════════════════════════════════════════════
+   UI STATE
+═══════════════════════════════════════════════ */
+function setConnected(state) {
+  // Always reset motion-lock state on any connect/disconnect so a
+  // crashed homing run never leaves the UI permanently frozen.
+  isRunning = false;
+  isSeeking = false;
+
+  document.getElementById("statusRow").className    = "status-row" + (state ? " connected" : "");
+  document.getElementById("statusText").textContent = state ? "CONNECTED" : "NOT CONNECTED";
+  document.getElementById("connectBtn").disabled     =  state;
+  document.getElementById("disconnectBtn").disabled  = !state;
+  document.getElementById("cwBtn").disabled          = !state;
+  document.getElementById("ccwBtn").disabled         = !state;
+  document.getElementById("estopBtn").disabled       = !state;
+  document.getElementById("homeSeekBtn").disabled    = !state;
+  // Remove any stale visual running/seeking state from buttons
+  document.getElementById("cwBtn").classList.remove("running");
+  document.getElementById("ccwBtn").classList.remove("running");
+  document.getElementById("homeSeekBtn").classList.remove("seeking");
+  document.getElementById("homeSeekSub").textContent = "fast sweep → backoff → slow precision creep";
+  updateHomeDisplay();
+}
+function setRunning(state) {
+  isRunning = state;
+  ["cwBtn","ccwBtn"].forEach(id => {
+    document.getElementById(id).disabled = state || isSeeking;
+    document.getElementById(id).classList.toggle("running", state);
+  });
+  document.getElementById("homeSeekBtn").disabled = state || isSeeking;
+  document.getElementById("wlGotoBtn").disabled   = state || isSeeking;
+  updateHomeDisplay();
+}
+function setSeeking(state) {
+  isSeeking = state;
+  const btn  = document.getElementById("homeSeekBtn");
+  btn.classList.toggle("seeking", state);
+  document.getElementById("homeSeekSub").textContent = state ? "searching… do not interrupt" : "fast sweep → backoff → slow precision creep";
+  document.getElementById("cwBtn").disabled  = state || isRunning;
+  document.getElementById("ccwBtn").disabled = state || isRunning;
+  document.getElementById("wlGotoBtn").disabled   = state || isRunning;
+  document.getElementById("homeSeekBtn").disabled = state;
+  updateHomeDisplay();
+}
+
+/* ═══════════════════════════════════════════════
+   LOG
+═══════════════════════════════════════════════ */
+function log(type, msg) {
+  const box  = document.getElementById("logBox");
+  const time = new Date().toTimeString().slice(0, 8);
+  const line = document.createElement("div");
+  line.className = "log-line";
+  line.innerHTML = `<span class="log-t">${time}</span><span class="log-${type}">${msg}</span>`;
+  box.appendChild(line); box.scrollTop = box.scrollHeight;
+  const lines = box.querySelectorAll(".log-line");
+  if (lines.length > 200) lines[0].remove();
+}
+function clearLog() { document.getElementById("logBox").innerHTML = ""; }
+
+/* ═══════════════════════════════════════════════
+   GLOBAL OFFSET
+═══════════════════════════════════════════════ */
+function onGlobalOffsetInput() {
+  const val = parseInt(document.getElementById("globalOffsetInput").value) || 0;
+  const hint = document.getElementById("globalOffsetHint");
+  if (calTable.length === 0) {
+    hint.textContent = "No calibration points to offset yet.";
+  } else {
+    hint.textContent = val === 0
+      ? "Shifts every calibration point by this many steps (e.g. +300 or −300)."
+      : `Will shift all ${calTable.length} point(s) by ${val >= 0 ? "+" : ""}${val} steps.`;
+  }
+}
+
+function applyGlobalOffset() {
+  const val = parseInt(document.getElementById("globalOffsetInput").value);
+  if (isNaN(val) || val === 0) { toast("Enter a non-zero offset first", "warn"); return; }
+  if (calTable.length === 0)    { toast("No calibration points to offset", "warn"); return; }
+  calTable = calTable.map(e => ({ ...e, steps: e.steps + val }));
+  document.getElementById("globalOffsetInput").value = 0;
+  onGlobalOffsetInput();
+  renderCalTable(); onWlGotoInput();
+  toast(`Global offset ${val >= 0 ? "+" : ""}${val} steps applied to all ${calTable.length} points`, "ok", 4000);
+  log("wl", `Global step offset ${val >= 0 ? "+" : ""}${val} applied to all calibration points`);
+}
+
+
+function applyAdjustment(nm) {
+  const delta = parseInt(document.getElementById(`adjInput_${nm}`).value);
+  if (isNaN(delta) || delta === 0) { toast("Enter a non-zero adjustment", "warn"); return; }
+  const idx = calTable.findIndex(e => e.nm === nm);
+  if (idx < 0) { toast("Calibration point not found", "err"); return; }
+  calTable[idx].steps += delta;
+  renderCalTable(); onWlGotoInput();
+  toast(`λ=${nm} nm adjusted by ${delta >= 0 ? "+" : ""}${delta} steps → now ${calTable[idx].steps} steps`, "ok", 4000);
+  log("wl", `Per-λ adjustment: λ=${nm} nm ${delta >= 0 ? "+" : ""}${delta} steps → ${calTable[idx].steps} steps`);
+}
+
+/* ═══════════════════════════════════════════════
+   MOVE TO MIDDLE
+═══════════════════════════════════════════════ */
+async function moveToMiddle() {
+  if (!homeIsSet) { toast("Home not set — run Seek Home first", "warn"); return; }
+  if (isRunning || isSeeking) { toast("Motor is busy", "warn"); return; }
+  const middleSteps = Math.round(maxStepsForCurrentDeg() / 2);
+  const delta = middleSteps - netSteps;
+  if (delta === 0) { toast("Already at middle position", "info"); return; }
+  const direction = delta > 0 ? "CW" : "CCW";
+  const stepsAbs  = Math.abs(delta);
+  const midDeg    = stepsToDeg(middleSteps);
+  toast(`Moving to middle · ${fmtDeg(midDeg)} (${middleSteps.toLocaleString()} steps from home)`, "info", 4000);
+  await executeMove(direction, stepsAbs, `⬤ Move to middle · ${fmtDeg(midDeg)} · ${direction} ${stepsAbs} steps`, "out");
+}
+
+/* ═══════════════════════════════════════════════
+   CONTINUOUS STEP TEST (SCAN)
+   ─────────────────────────────────────────────
+   How it works:
+   1. Operator fills in start nm, end nm, step nm.
+   2. The browser resolves (start → end) using the cal table to find
+      the step count for start and for (start + step_nm), then computes
+      stepsPerTrigger = steps(start + step_nm) - steps(start).
+   3. That single integer is sent to the Arduino via SCAN_ARM.
+   4. On each rising edge on D12 the Arduino moves that many steps CW
+      and sends TRIG_STEP:<position>.
+   5. The trig_poll long-poll picks up each TRIG_STEP and the browser
+      reverse-interpolates the current wavelength from the cal table.
+═══════════════════════════════════════════════ */
+
+// State for armed scan
+let _scanArmed       = false;
+let _scanSPT         = 0;     // steps per trigger currently armed (always positive)
+let _scanStartNm     = 0;
+let _scanEndNm       = 0;
+let _scanTrigCount   = 0;
+let _scanMaxTriggers = 0;     // hard cap passed to Arduino; 0 = no cap
+let _scanReversed    = false; // true when scanning from high nm → low nm
+
+function onScanParamInput() {
+  const startNm = parseFloat(document.getElementById("scanStartNm").value);
+  const endNm   = parseFloat(document.getElementById("scanEndNm").value);
+  const stepNm  = parseFloat(document.getElementById("scanStepNm").value);
+  const preview = document.getElementById("scanPreviewBox");
+  const armBtn  = document.getElementById("scanArmBtn");
+
+  armBtn.disabled = true;
+  armBtn.dataset.spt = "";
+
+  if (!startNm || !endNm || !stepNm || stepNm <= 0) {
+    preview.innerHTML = "Enter start wavelength, end wavelength, and step size. A calibration table must be loaded.";
+    return;
+  }
+  if (startNm === endNm) {
+    preview.innerHTML = `<span style="color:var(--red);">⚠ Start and End cannot be the same wavelength.</span>`;
+    return;
+  }
+  if (calTable.length === 0) {
+    preview.innerHTML = `<span style="color:var(--yellow);">⚠ No calibration table loaded. Add calibration points first.</span>`;
+    return;
+  }
+
+  const reversed = startNm > endNm;  // high → low scan
+
+  // Both endpoints must fall within the calibrated range
+  const rStart = resolveWavelength(startNm);
+  const rEnd   = resolveWavelength(endNm);
+
+  if (!rStart || rStart.error) {
+    preview.innerHTML = `<span style="color:var(--red);">⚠ Start wavelength (${startNm} nm) is outside the calibration table: ${rStart ? rStart.error : "interpolation failed"}</span>`;
+    return;
+  }
+  if (!rEnd || rEnd.error) {
+    preview.innerHTML = `<span style="color:var(--red);">⚠ End wavelength (${endNm} nm) is outside the calibration table: ${rEnd ? rEnd.error : "interpolation failed"}</span>`;
+    return;
+  }
+
+  // Resolve one step in the scan direction to compute steps-per-trigger.
+  // For a reversed scan, step nm is subtracted from start.
+  const stepTarget = Math.round((startNm + (reversed ? -stepNm : stepNm)) * 1000) / 1000;
+  const rStep = resolveWavelength(stepTarget);
+
+  if (!rStep || rStep.error) {
+    preview.innerHTML = `<span style="color:var(--red);">⚠ Cannot resolve first step target (${stepTarget.toFixed(3)} nm): ${rStep ? rStep.error : "interpolation failed"}</span>`;
+    return;
+  }
+
+  // stepsPerTrig is always positive; direction is controlled by the reversed flag.
+  const rawStepsPerTrig = rStep.steps - rStart.steps;  // negative for reversed scans
+  const stepsPerTrig    = Math.abs(rawStepsPerTrig);
+
+  if (stepsPerTrig === 0) {
+    preview.innerHTML = `<span style="color:var(--red);">⚠ Step size resolves to 0 steps — increase step size or check calibration table.</span>`;
+    return;
+  }
+
+  const totalSteps   = Math.abs(rEnd.steps - rStart.steps);
+  const estTriggers  = Math.round(totalSteps / stepsPerTrig);
+  const dirLabel     = reversed ? "CCW ↙ high→low" : "CW ↗ low→high";
+
+  preview.innerHTML =
+    `<strong style="color:var(--green);">✓ Ready to arm</strong> &nbsp;·&nbsp; ` +
+    `Direction: <strong style="color:var(--${reversed ? "orange" : "cyan"});">${dirLabel}</strong> &nbsp;·&nbsp; ` +
+    `Each trigger moves <strong style="color:var(--cyan);">${stepsPerTrig.toLocaleString()} steps</strong> ≈ <strong style="color:var(--violet);">${stepNm} nm</strong> &nbsp;·&nbsp; ` +
+    `Start: <strong>${startNm} nm</strong> (${rStart.steps.toLocaleString()} steps) &nbsp;·&nbsp; ` +
+    `~${estTriggers} triggers to reach ${endNm} nm`;
+
+  armBtn.disabled            = false;
+  armBtn.dataset.spt         = stepsPerTrig;
+  armBtn.dataset.startSteps  = rStart.steps;
+  armBtn.dataset.startNm     = startNm;
+  armBtn.dataset.endNm       = endNm;
+  armBtn.dataset.reversed    = reversed ? "1" : "0";
+  armBtn.dataset.maxTriggers = estTriggers;
+}
+
+async function scanArm() {
+  const connected = !document.getElementById("disconnectBtn").disabled;
+  if (!connected) { toast("Connect to Arduino first", "warn"); return; }
+  if (!homeIsSet)  { toast("Home not set — run Seek Home first", "warn"); return; }
+  if (isRunning || isSeeking) { toast("Motor is busy", "warn"); return; }
+
+  const spt = parseInt(document.getElementById("scanArmBtn").dataset.spt || "0");
+  if (!spt || spt <= 0) { toast("No valid step size — check parameters", "warn"); return; }
+
+  const startSteps  = parseInt(document.getElementById("scanArmBtn").dataset.startSteps || "0");
+  _scanStartNm      = parseFloat(document.getElementById("scanArmBtn").dataset.startNm  || "0");
+  _scanEndNm        = parseFloat(document.getElementById("scanArmBtn").dataset.endNm    || "0");
+  _scanReversed     = document.getElementById("scanArmBtn").dataset.reversed === "1";
+  _scanMaxTriggers  = parseInt(document.getElementById("scanArmBtn").dataset.maxTriggers || "0");
+  _scanTrigCount    = 0;
+  _scanSPT          = spt;
+
+  // ── Step 1: move to start wavelength if not already there ──────────────────
+  if (netSteps !== startSteps) {
+    const delta     = startSteps - netSteps;
+    const direction = delta > 0 ? "CW" : "CCW";
+    const stepsAbs  = Math.abs(delta);
+
+    setScanState("moving");
+    log("wl", `Scan: moving to start position — ${_scanStartNm} nm (${startSteps.toLocaleString()} steps) · ${direction} ${stepsAbs.toLocaleString()} steps`);
+    toast(`Moving to start: ${_scanStartNm} nm…`, "info", 10000);
+
+    await executeMove(direction, stepsAbs, `Scan start → ${_scanStartNm} nm · ${direction} ${stepsAbs} steps`, "wl");
+
+    // If something went wrong (e-stop, limit hit) bail out
+    if (netSteps !== startSteps) {
+      toast("Could not reach scan start position — scan aborted", "err", 6000);
+      log("err", `Scan aborted: expected ${startSteps} steps, currently at ${netSteps} steps`);
+      setScanState("idle");
+      return;
+    }
+  }
+
+  // ── Step 2: send SCAN_ARM to Arduino ───────────────────────────────────────
+  log("wl", `Scan arming: ${spt} steps/trigger · ${_scanReversed ? "CCW (high→low)" : "CW (low→high)"} · start ${_scanStartNm} nm`);
+  toast(`Arming scan…`, "info", 3000);
+
+  try {
+    const data = await (await fetch(`${API}/scan_arm`, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ steps_per_trigger: spt, reversed: _scanReversed, max_triggers: _scanMaxTriggers })
+    })).json();
+
+    if (data.ok && data.armed) {
+      _scanArmed = true;
+      setScanState("armed");
+      document.getElementById("scanLiveSPT").textContent = spt.toLocaleString() + " steps";
+      toast(`✓ Scan armed — ${spt} steps/trigger · max ${_scanMaxTriggers} triggers. Waiting for trigger on D12.`, "ok", 6000);
+      log("wl", `Scan ARMED. ${spt} steps/trigger · ${_scanReversed ? "CCW" : "CW"} · max ${_scanMaxTriggers} triggers. Falling edge on D12 fires each step.`);
+    } else {
+      toast(data.error || "Arming failed", "err");
+      log("err", `Scan arm failed: ${data.error}`);
+      setScanState("idle");
+    }
+  } catch {
+    toast("Lost connection to bridge", "err");
+    log("err", "Lost connection during scan arm");
+    setScanState("idle");
+  }
+}
+
+function scanDisarm() {
+  // Instant — flip state immediately, fire the bridge request in the background.
+  _scanArmed = false;
+  setScanState("idle");
+  toast("Scan disarmed — motor holding position", "info");
+  log("wl", "Scan DISARMED.");
+  const connected = !document.getElementById("disconnectBtn").disabled;
+  if (connected) {
+    fetch(`${API}/scan_disarm`, { method: "POST" }).catch(() => {});
+  }
+}
+
+function setScanState(state) {
+  const dot       = document.getElementById("scanDot");
+  const txt       = document.getElementById("scanStatusText");
+  const prog      = document.getElementById("scanProgressText");
+  const armBtn    = document.getElementById("scanArmBtn");
+  const disarmBtn = document.getElementById("scanDisarmBtn");
+
+  if (state === "armed") {
+    dot.style.background = "var(--green)";
+    dot.style.boxShadow  = "0 0 6px var(--green)";
+    dot.style.animation  = "blink 1.5s ease-in-out infinite";
+    txt.style.color      = "var(--green)";
+    txt.textContent      = "ARMED — WAITING FOR TRIGGER";
+    prog.textContent     = `${_scanTrigCount} triggers received`;
+    armBtn.disabled    = true;
+    disarmBtn.disabled = false;
+  } else if (state === "moving") {
+    dot.style.background = "var(--cyan)";
+    dot.style.boxShadow  = "0 0 6px var(--cyan)";
+    dot.style.animation  = "blink 0.6s ease-in-out infinite";
+    txt.style.color      = "var(--cyan)";
+    txt.textContent      = "MOVING TO START…";
+    prog.textContent     = `heading to ${_scanStartNm} nm`;
+    armBtn.disabled    = true;
+    disarmBtn.disabled = true;
+  } else {
+    dot.style.background = "var(--dim)";
+    dot.style.boxShadow  = "";
+    dot.style.animation  = "";
+    txt.style.color      = "var(--dim)";
+    txt.textContent      = "NOT ARMED";
+    prog.textContent     = "";
+    armBtn.disabled    = false;
+    disarmBtn.disabled = true;
+    document.getElementById("scanLiveNm").textContent         = "—";
+    document.getElementById("scanLiveNmSub").textContent      = "not armed";
+    document.getElementById("scanLiveDone").textContent       = "0";
+    document.getElementById("scanLiveRemaining").textContent  = "—";
+    document.getElementById("scanLiveSteps").textContent      = "—";
+    document.getElementById("scanLiveDeg").textContent        = "—";
+    document.getElementById("scanLiveNmDash").textContent     = "—";
+    document.getElementById("scanLiveSPT").textContent        = "—";
+  }
+}
+
+// Called by the trig_poll loop whenever a new TRIG_STEP arrives
+function onScanTrigger(position) {
+  if (!_scanArmed) return;
+  _scanTrigCount++;
+
+  // For a reversed scan the Arduino moves CCW so position decreases
+  const deg = stepsToDeg(position);
+  document.getElementById("scanLiveDone").textContent      = _scanTrigCount;
+  document.getElementById("scanLiveSteps").textContent     = position.toLocaleString() + " steps";
+  document.getElementById("scanLiveDeg").textContent       = fmtDeg(deg) + " from home";
+  document.getElementById("scanProgressText").textContent  = `${_scanTrigCount} / ${_scanMaxTriggers || "∞"} triggers`;
+
+  const wlResult = resolveWavelength(position, true);
+  if (wlResult && !wlResult.error) {
+    const nm = wlResult.nm;
+    document.getElementById("scanLiveNm").textContent     = nm.toFixed(3) + " nm";
+    document.getElementById("scanLiveNmSub").textContent  = `trigger #${_scanTrigCount}`;
+    document.getElementById("scanLiveNmSub").style.color  = "var(--green)";
+    document.getElementById("scanLiveNmDash").textContent = nm.toFixed(3) + " nm";
+    log("wl", `⚡ Trigger #${_scanTrigCount} → ${position.toLocaleString()} steps · λ ${nm.toFixed(3)} nm`);
+
+    // End condition 1: wavelength reached end target
+    const reached = _scanReversed ? (nm <= _scanEndNm + 0.001) : (nm >= _scanEndNm - 0.001);
+    // End condition 2: hard trigger count cap (Arduino already self-disarmed; mirror that in JS)
+    const capReached = _scanMaxTriggers > 0 && _scanTrigCount >= _scanMaxTriggers;
+
+    if (reached || capReached) {
+      document.getElementById("scanLiveRemaining").textContent = "End reached";
+      const reason = capReached
+        ? `${_scanMaxTriggers} trigger cap reached`
+        : `end wavelength ${_scanEndNm} nm reached`;
+      toast(`✓ Scan complete — ${reason} after ${_scanTrigCount} triggers`, "ok", 8000);
+      log("wl", `Scan complete: ${reason}. Disarming.`);
+      scanDisarm();
+    }
+  } else {
+    document.getElementById("scanLiveNm").textContent     = "—";
+    document.getElementById("scanLiveNmSub").textContent  = `trigger #${_scanTrigCount} · no cal match`;
+    document.getElementById("scanLiveNmDash").textContent = "—";
+    log("wl", `⚡ Trigger #${_scanTrigCount} → ${position.toLocaleString()} steps (outside cal table range)`);
+
+    // Still enforce hard cap even if wavelength can't be resolved
+    if (_scanMaxTriggers > 0 && _scanTrigCount >= _scanMaxTriggers) {
+      document.getElementById("scanLiveRemaining").textContent = "End reached";
+      toast(`✓ Scan complete — ${_scanMaxTriggers} trigger cap reached after ${_scanTrigCount} triggers`, "ok", 8000);
+      log("wl", `Scan complete: trigger cap ${_scanMaxTriggers} reached. Disarming.`);
+      scanDisarm();
+    }
+  }
+}
+
+
+/* ═══════════════════════════════════════════════
+   TRIGGER STEP LIVE POLLING
+   Runs continuously while connected. Calls /trig_poll
+   (a 2 s long-poll) and on every TRIG_STEP from D12
+   updates netSteps + all position/wavelength displays.
+═══════════════════════════════════════════════ */
+let _trigPollActive = false;
+let _trigLastSeq    = -1;
+
+async function _trigPollLoop() {
+  while (_trigPollActive) {
+    try {
+      const res  = await fetch(`${API}/trig_poll?last_seq=${_trigLastSeq}`);
+      const data = await res.json();
+
+      if (!data.ok) {
+        _trigPollActive = false;
+        break;
+      }
+
+      if (data.changed) {
+        _trigLastSeq = data.seq;
+
+        // Update global position
+        netSteps = data.position;
+        updatePositionDisplay();
+        updateHomeDisplay();
+        updateWlRecordPositionDisplay();
+        updateTrackBar();
+        onWlGotoInput();
+
+        if (_scanArmed) {
+          // Scan mode: route to scan dashboard updater
+          onScanTrigger(data.position);
+        } else {
+          // Not in a scan — just log the trigger
+          const deg      = stepsToDeg(netSteps);
+          const wlResult = resolveWavelength(netSteps, true);
+          const wlStr    = (wlResult && !wlResult.error)
+            ? ` · <strong style="color:var(--violet);">λ ${wlResult.nm.toFixed(3)} nm</strong>`
+            : "";
+          log("in",
+            `⚡ Trigger → <strong style="color:var(--cyan);">${netSteps.toLocaleString()} steps</strong> (${fmtDeg(Math.abs(deg))})${wlStr}`
+          );
+        }
+      }
+    } catch {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+}
+
+function startTrigPoll() {
+  _trigPollActive = true;
+  _trigLastSeq    = -1;
+  _trigPollLoop();
+}
+
+function stopTrigPoll() {
+  _trigPollActive = false;
+}
+
+// ─── Patch setConnected to start/stop the poll ───
+const _origSetConnected = setConnected;
+setConnected = function(state) {
+  _origSetConnected(state);
+  if (state) {
+    startTrigPoll();
+  } else {
+    stopTrigPoll();
+  }
+};
+
+updateMstepUI();
+updatePositionDisplay();
+updateHomeDisplay();
+updateSpeedEst();
+updateWlRecordPositionDisplay();
+updateTrackBar();
+renderCalTable();
+refreshPorts();
+</script>
+</body>
+</html>
