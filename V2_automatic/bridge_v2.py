@@ -287,7 +287,7 @@ def connect():
     global ser
     port = request.json.get("port")
     try:
-        ser = serial.Serial(port, 115200, timeout=2)
+        ser = serial.Serial(port, 9600, timeout=2)
         time.sleep(2)
         ser.reset_input_buffer()
         _start_reader()
