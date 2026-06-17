@@ -221,7 +221,7 @@ void setup() {
   digitalWrite(powerLedPin, HIGH);  // LED on = Arduino running
   applyMstep(currentMstepIdx);
 
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println(F("Ready."));
 }
 

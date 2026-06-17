@@ -628,6 +628,20 @@ select:focus { border-color: var(--cyan); }
 <div class="panel" id="autoPanel" style="display:none;border-color:var(--green-br);">
   <div class="panel-title" style="color:var(--green);">Automatic CCD Tracking <span class="pill" style="background:var(--green-bg);border-color:var(--green-br);color:var(--green);">TCD1304DG</span></div>
 
+  <!-- Explanation box -->
+  <div style="margin-bottom:14px;padding:12px 15px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;font-size:10px;color:var(--dim);line-height:1.85;">
+    <strong style="color:var(--white);font-size:11px;letter-spacing:0.5px;">How automatic mode works</strong><br><br>
+    A small mirror picks off ~1–2% of the beam and directs it onto the <strong style="color:var(--cyan);">TCD1304DG</strong> linear CCD sensor (3648 pixels).
+    The sensor measures how much light it receives. When the diffraction grating is at the <strong>correct angle</strong> for the target wavelength,
+    the beam is aligned and the CCD sees <strong style="color:var(--green);">maximum intensity</strong>.<br><br>
+    The system works in two phases:<br>
+    &nbsp;&nbsp;<strong style="color:var(--yellow);">① Search (dither)</strong> — the motor steps in one direction, reads the CCD after each move, and checks whether intensity went up or down.
+    If it goes down, the motor reverses. It keeps doing this until it finds the peak intensity position.<br>
+    &nbsp;&nbsp;<strong style="color:var(--green);">② Track</strong> — once the peak is found, the motor holds position and keeps polling the CCD.
+    If the beam wavelength changes (intensity drops), it automatically re-enters search mode to find the new peak.<br><br>
+    <strong style="color:var(--red);">Important:</strong> run <strong>Seek Home</strong> first to establish the zero position before starting auto-track.
+  </div>
+
   <!-- Status bar -->
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
     <div class="badge" id="autoStateBadge" style="font-size:11px;padding:6px 14px;letter-spacing:2px;">IDLE</div>
@@ -635,31 +649,37 @@ select:focus { border-color: var(--cyan); }
       <div class="pos-card" style="flex:1;min-width:120px;">
         <div class="pos-label">CCD Intensity (sum)</div>
         <div class="pos-val" id="autoIntensityVal" style="font-size:16px;">—</div>
+        <div class="pos-unit">sum of all 3648 pixel values — higher = more light on CCD</div>
       </div>
       <div class="pos-card" style="flex:1;min-width:120px;">
-        <div class="pos-label">Peak seen</div>
+        <div class="pos-label">Best peak seen</div>
         <div class="pos-val" id="autoPeakVal" style="font-size:16px;color:var(--green);">—</div>
+        <div class="pos-unit">highest single-pixel value found so far (0–1023)</div>
       </div>
       <div class="pos-card" style="flex:1;min-width:120px;">
         <div class="pos-label">Steps taken</div>
         <div class="pos-val" id="autoStepsVal" style="font-size:16px;color:var(--cyan);">0</div>
+        <div class="pos-unit">total motor steps moved since auto-track started</div>
       </div>
     </div>
   </div>
 
   <!-- CCD spectrum canvas -->
   <div style="margin-bottom:12px;">
-    <div style="font-size:9px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase;margin-bottom:6px;">CCD Pixel Readout (3648 px → downsampled)</div>
-    <canvas id="ccdCanvas" width="900" height="100" style="width:100%;height:100px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);display:block;"></canvas>
+    <div style="font-size:9px;letter-spacing:2.5px;color:var(--dim);text-transform:uppercase;margin-bottom:4px;">CCD Live View — pixel intensity across the 3648-pixel array</div>
+    <div style="font-size:9px;color:var(--dim);margin-bottom:6px;">Each bar = brightness at that pixel position. The dashed cyan line marks the brightest pixel. A sharp peak = beam is hitting the sensor cleanly.</div>
+    <canvas id="ccdCanvas" width="900" height="120" style="width:100%;height:120px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);display:block;"></canvas>
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
       <button class="btn btn-ghost" onclick="refreshCCDView()" style="font-size:10px;">↺ Refresh CCD View</button>
-      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--dim);">
-        Integration time:
+      <div style="font-size:9px;color:var(--dim);margin-left:4px;">Takes ~0.5 s at 115200 baud.</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--dim);margin-left:auto;">
+        <span title="How long the CCD collects light before readout. Longer = brighter signal but more motion blur. Start at 5 ms.">Integration time:</span>
         <div class="config-input-wrap" style="width:80px;">
           <input type="number" id="ccdIntMs" value="5" min="1" max="500" step="1">
           <span class="unit">ms</span>
         </div>
         <button class="btn-apply" onclick="applyCCDInt()">Set</button>
+        <span style="font-size:9px;color:var(--dim);">↑ increase if signal is too weak · decrease if saturated (flat top)</span>
       </div>
     </div>
   </div>
@@ -675,10 +695,12 @@ select:focus { border-color: var(--cyan); }
           <label title="Steps per dither move while searching for intensity peak">Dither steps</label>
           <div class="config-input-wrap"><input type="number" id="autoDitherSteps" value="50" min="1"></div>
         </div>
+        <div style="font-size:9px;color:var(--dim);margin-top:-4px;padding-left:2px;">How many steps the motor moves per search iteration. Larger = faster search but less precise. <strong style="color:var(--yellow);">50 steps ≈ 0.017°</strong> at 1/16 microstep.</div>
         <div class="config-field-row">
           <label title="Steps per correction move while tracking">Track steps</label>
           <div class="config-input-wrap"><input type="number" id="autoTrackSteps" value="20" min="1"></div>
         </div>
+        <div style="font-size:9px;color:var(--dim);margin-top:-4px;padding-left:2px;">Once locked on, how many steps per correction nudge. Smaller = more precise tracking. <strong style="color:var(--cyan);">20 steps ≈ 0.007°</strong>.</div>
         <div class="config-field-row">
           <label title="Intensity drop % that triggers a re-search">Drop threshold</label>
           <div class="config-input-wrap">
@@ -693,12 +715,14 @@ select:focus { border-color: var(--cyan); }
             <span class="unit">ms</span>
           </div>
         </div>
+        <div style="font-size:9px;color:var(--dim);margin-top:-4px;padding-left:2px;">How often the CCD is read during tracking. <strong style="color:var(--cyan);">200 ms</strong> is a good default. Lower = more responsive but heavier on serial traffic.</div>
       </div>
-      <div style="margin-top:10px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;font-size:9px;color:var(--dim);line-height:1.7;">
-        <strong style="color:var(--white);">How it works:</strong><br>
-        1. <strong style="color:var(--yellow);">Dither search</strong> — steps in one direction until intensity rises, reverses if it falls.<br>
-        2. <strong style="color:var(--green);">Track</strong> — holds position; re-searches if intensity drops below threshold.<br>
-        Motor must be <strong style="color:var(--green);">homed</strong> before starting.
+
+      <!-- Drop threshold explanation -->
+      <div style="margin-top:10px;padding:10px 12px;background:var(--yellow-bg);border:1px solid var(--yellow-br);border-radius:4px;font-size:9px;color:var(--yellow);line-height:1.8;">
+        <strong>Drop threshold</strong> (currently shown above) = how much the intensity must fall before the system decides the beam has moved and starts searching again.<br>
+        Example: if the best intensity was <strong>50000</strong> and threshold is <strong>30%</strong>, a drop below <strong>35000</strong> triggers a new search.<br>
+        Set lower (10–20%) for sensitive real-time tracking. Set higher (40–50%) if the beam is noisy and you get false re-searches.
       </div>
     </div>
 

@@ -287,7 +287,7 @@ def connect():
     global ser
     port = request.json.get("port")
     try:
-        ser = serial.Serial(port, 9600, timeout=2)
+        ser = serial.Serial(port, 115200, timeout=2)
         time.sleep(2)
         ser.reset_input_buffer()
         _start_reader()
@@ -357,7 +357,7 @@ def home_seek():
         return jsonify({"ok": False, "error": "Not connected"})
 
     _stop_reader()
-    time.sleep(0.3)  # let any in-flight bytes from previous commands arrive before clearing
+    time.sleep(0.2)  # let any in-flight bytes settle
 
     old_timeout = ser.timeout
     ser.timeout = 2
@@ -365,12 +365,16 @@ def home_seek():
 
     try:
         with _serial_lock:
+            # Send a blank line first to flush any partial/stale byte sitting in
+            # the Arduino UART receiver (common at 115200 on clone boards).
+            ser.write(b"\n")
+            time.sleep(0.1)
             ser.reset_input_buffer()
-            time.sleep(0.05)  # short pause so the line is quiet before we send
             ser.write(b"HOME_SEEK\n")
             responses = []
             homed = False
             error = None
+            retried = False
 
             while time.time() < deadline:
                 try:
@@ -387,7 +391,18 @@ def home_seek():
                     if pos_line:
                         responses.append(pos_line)
                     break
-                if line.startswith("Stopped.") or line.startswith("ERR:"):
+                if line.startswith("Stopped."):
+                    error = line
+                    break
+                if line.startswith("ERR:") and not retried:
+                    # Garbled command — flush and retry once (common at 115200)
+                    retried = True
+                    time.sleep(0.15)
+                    ser.reset_input_buffer()
+                    ser.write(b"HOME_SEEK\n")
+                    responses.append("(retrying HOME_SEEK after garbled response)")
+                    continue
+                if line.startswith("ERR:"):
                     error = line
                     break
 
