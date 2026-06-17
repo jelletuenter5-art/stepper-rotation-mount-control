@@ -652,9 +652,9 @@ select:focus { border-color: var(--cyan); }
         <div class="pos-unit">sum of all 3648 pixel values — higher = more light on CCD</div>
       </div>
       <div class="pos-card" style="flex:1;min-width:120px;">
-        <div class="pos-label">Best peak seen</div>
+        <div class="pos-label">Best sum seen</div>
         <div class="pos-val" id="autoPeakVal" style="font-size:16px;color:var(--green);">—</div>
-        <div class="pos-unit">highest single-pixel value found so far (0–1023)</div>
+        <div class="pos-unit">highest total sum seen since auto-track started</div>
       </div>
       <div class="pos-card" style="flex:1;min-width:120px;">
         <div class="pos-label">Steps taken</div>
@@ -2378,9 +2378,36 @@ refreshPorts();
 /* ═══════════════════════════════════════════════
    AUTOMATIC MODE  (V2 — TCD1304DG CCD tracking)
 ═══════════════════════════════════════════════ */
-let _autoRunning   = false;
+let _autoRunning     = false;
 let _autoStatusTimer = null;
-let _autoPanelOpen = false;
+let _autoPanelOpen   = false;
+let _ccdLiveTimer    = null;
+
+// Live CCD tick — runs when panel is open but auto mode is NOT active.
+// Fetches /ccd_read, updates canvas and intensity card.
+async function _ccdLiveTick() {
+  if (_autoRunning) return;
+  try {
+    const d = await (await fetch(`${API}/ccd_read`)).json();
+    if (d.ok && d.pixels && d.pixels.length > 0) {
+      drawCCDCanvas(d.pixels);
+      // CCD_STRIDE=8 so bridge sends every 8th pixel; scale sum back to approximate full sum
+      const approxSum = d.pixels.reduce((a, b) => a + b, 0) * 8;
+      document.getElementById("autoIntensityVal").textContent = Math.round(approxSum).toLocaleString();
+    }
+  } catch {}
+}
+
+function _startCCDLive() {
+  if (_ccdLiveTimer) return;
+  _ccdLiveTick();
+  _ccdLiveTimer = setInterval(_ccdLiveTick, 1500);
+}
+
+function _stopCCDLive() {
+  clearInterval(_ccdLiveTimer);
+  _ccdLiveTimer = null;
+}
 
 function toggleAutoPanel() {
   _autoPanelOpen = !_autoPanelOpen;
@@ -2388,6 +2415,8 @@ function toggleAutoPanel() {
   const btn = document.getElementById("autoPanelToggle");
   btn.style.background   = _autoPanelOpen ? "var(--green-bg)"  : "";
   btn.style.borderColor  = _autoPanelOpen ? "var(--green)"     : "var(--green-br)";
+  if (_autoPanelOpen && !_autoRunning) _startCCDLive();
+  else _stopCCDLive();
 }
 
 // Enable/disable the Start button whenever connection or home state changes
@@ -2429,8 +2458,8 @@ async function startAutoTrack() {
     });
     toast("Auto-tracking started", "ok");
     log("sys", "Auto-tracking STARTED — CCD hill-climb active");
+    _stopCCDLive();
     _autoStatusTimer = setInterval(_autoStatusPoll, 500);
-    refreshCCDView();
   } catch { toast("Bridge unreachable", "err"); }
 }
 
@@ -2454,6 +2483,7 @@ async function stopAutoTrack() {
   toast("Auto-tracking stopped", "info");
   log("sys", "Auto-tracking STOPPED");
   _updateAutoStartBtn();
+  if (_autoPanelOpen) _startCCDLive();
 }
 
 async function _autoStatusPoll() {
