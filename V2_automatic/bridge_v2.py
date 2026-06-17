@@ -568,6 +568,21 @@ def scan_status():
 
 # ─── CCD routes ───────────────────────────────────────────────────────────────
 
+@app.route("/ccd_raw", methods=["GET"])
+def ccd_raw():
+    """Read raw A0 voltage without any CCD clocking — for wiring diagnostics."""
+    if not ser:
+        return jsonify({"ok": False, "error": "Not connected"})
+    line = _cmd(b"CCD_RAW\n", timeout=2)
+    if line.startswith("RAW_A0="):
+        try:
+            val = int(line.split("=")[1])
+            return jsonify({"ok": True, "raw_adc": val, "voltage_mv": round(val * 5000 / 1023)})
+        except ValueError:
+            pass
+    return jsonify({"ok": False, "error": f"Unexpected response: {line!r}"})
+
+
 @app.route("/ccd_intensity", methods=["GET"])
 def ccd_intensity():
     if not ser:
