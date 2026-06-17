@@ -2367,7 +2367,6 @@ function toggleAutoPanel() {
 }
 
 // Enable/disable the Start button whenever connection or home state changes
-const _origSetConnected = typeof setConnected === "function" ? setConnected : null;
 function _updateAutoStartBtn() {
   const connected = !document.getElementById("disconnectBtn").disabled;
   const btn = document.getElementById("autoStartBtn");
