@@ -313,6 +313,7 @@ def move():
         return jsonify({"ok": False, "error": "Not connected"})
     direction = request.json.get("direction")
     steps     = request.json.get("steps")
+    print(f"[MOVE] sending → direction={direction!r} steps={steps!r}")
     timeout   = max(10, int(steps) * 0.002)
     responses = _cmd_multi(
         f"{direction} {steps}\n".encode(),
