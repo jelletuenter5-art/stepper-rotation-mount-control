@@ -357,6 +357,7 @@ def home_seek():
         return jsonify({"ok": False, "error": "Not connected"})
 
     _stop_reader()
+    time.sleep(0.3)  # let any in-flight bytes from previous commands arrive before clearing
 
     old_timeout = ser.timeout
     ser.timeout = 2
@@ -365,6 +366,7 @@ def home_seek():
     try:
         with _serial_lock:
             ser.reset_input_buffer()
+            time.sleep(0.05)  # short pause so the line is quiet before we send
             ser.write(b"HOME_SEEK\n")
             responses = []
             homed = False
