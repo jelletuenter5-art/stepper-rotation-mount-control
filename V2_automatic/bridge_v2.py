@@ -169,7 +169,8 @@ def _read_ccd_intensity():
                 pass
     if "sum" not in parts:
         raise RuntimeError(f"Unexpected CCD_INTENSITY response: {line!r}")
-    return parts["sum"], parts.get("peak", 0), parts.get("pixel", 0)
+    corrected_sum = max(0, parts["sum"] - _dark_sum)
+    return corrected_sum, parts.get("peak", 0), parts.get("pixel", 0)
 
 
 def _hill_climb(dither, track):
@@ -583,6 +584,44 @@ def scan_status():
     return jsonify({"ok": True, "raw": response, **info})
 
 
+# ─── CCD dark-frame calibration ───────────────────────────────────────────────
+# Dark frame = ambient-light reading taken with laser blocked.
+# Subtracted from every subsequent pixel read so only the laser signal remains.
+_dark_frame = []   # list of N calibrated dark pixel values (N = CCD pixels / CCD_STRIDE)
+_dark_sum   = 0    # sum(_dark_frame) * CCD_STRIDE — used to correct CCD_INTENSITY fast path
+
+
+def _read_ccd_pixels_raw():
+    """Read one full CCD frame (subsampled). Returns list of raw pixel values, or raises."""
+    with _serial_lock:
+        old_timeout = ser.timeout
+        ser.timeout = 10
+        try:
+            ser.write(b"\n")
+            time.sleep(0.05)
+            ser.reset_input_buffer()
+            ser.write(b"CCD_READ\n")
+            data_line = ""
+            for _ in range(50):
+                line = ser.readline().decode(errors="replace").strip()
+                if line.startswith("CCD_DATA:"):
+                    data_line = line[len("CCD_DATA:"):]
+                elif line == "CCD_DONE":
+                    break
+        finally:
+            ser.timeout = old_timeout
+    if not data_line:
+        raise RuntimeError("No CCD data received")
+    return [int(v) for v in data_line.split(",") if v.strip()]
+
+
+def _apply_dark(pixels):
+    """Subtract dark frame from pixel list, clip at 0. Returns corrected list."""
+    if not _dark_frame or len(_dark_frame) != len(pixels):
+        return pixels
+    return [max(0, p - d) for p, d in zip(pixels, _dark_frame)]
+
+
 # ─── CCD routes ───────────────────────────────────────────────────────────────
 
 @app.route("/ccd_raw", methods=["GET"])
@@ -598,6 +637,41 @@ def ccd_raw():
         except ValueError:
             pass
     return jsonify({"ok": False, "error": f"Unexpected response: {line!r}"})
+
+
+@app.route("/ccd_calibrate_dark", methods=["POST"])
+def ccd_calibrate_dark():
+    """Take N CCD readings with laser blocked and store as dark frame."""
+    global _dark_frame, _dark_sum
+    if not ser:
+        return jsonify({"ok": False, "error": "Not connected"})
+    N = 3
+    readings = []
+    try:
+        for _ in range(N):
+            readings.append(_read_ccd_pixels_raw())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+    length = min(len(r) for r in readings)
+    _dark_frame = [sum(r[i] for r in readings) // N for i in range(length)]
+    _dark_sum   = sum(_dark_frame) * 8  # CCD_STRIDE = 8
+    return jsonify({"ok": True, "dark_sum": _dark_sum, "pixels": length,
+                    "avg_per_pixel": round(_dark_sum / (length * 8)) if length else 0})
+
+
+@app.route("/ccd_dark_reset", methods=["POST"])
+def ccd_dark_reset():
+    global _dark_frame, _dark_sum
+    _dark_frame = []
+    _dark_sum   = 0
+    return jsonify({"ok": True})
+
+
+@app.route("/ccd_dark_status", methods=["GET"])
+def ccd_dark_status():
+    return jsonify({"ok": True, "calibrated": bool(_dark_frame),
+                    "dark_sum": _dark_sum,
+                    "pixels": len(_dark_frame)})
 
 
 @app.route("/ccd_intensity", methods=["GET"])
@@ -616,29 +690,9 @@ def ccd_read():
     if not ser:
         return jsonify({"ok": False, "error": "Not connected"})
     try:
-        with _serial_lock:
-            old_timeout = ser.timeout
-            ser.timeout = 10
-            try:
-                ser.write(b"\n")
-                time.sleep(0.05)
-                ser.reset_input_buffer()
-                ser.write(b"CCD_READ\n")
-                data_line = ""
-                for _ in range(50):
-                    line = ser.readline().decode(errors="replace").strip()
-                    if line.startswith("CCD_DATA:"):
-                        data_line = line[len("CCD_DATA:"):]
-                    elif line == "CCD_DONE":
-                        break
-            finally:
-                ser.timeout = old_timeout
-
-        if not data_line:
-            return jsonify({"ok": False, "error": "No CCD data received"})
-
-        pixels = [int(v) for v in data_line.split(",") if v.strip()]
-        return jsonify({"ok": True, "pixels": pixels})
+        raw = _read_ccd_pixels_raw()
+        pixels = _apply_dark(raw)
+        return jsonify({"ok": True, "pixels": pixels, "dark_calibrated": bool(_dark_frame)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
