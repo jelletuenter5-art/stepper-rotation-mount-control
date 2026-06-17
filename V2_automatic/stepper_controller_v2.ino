@@ -76,8 +76,7 @@ unsigned long lastTrigTime  = 0;
 const unsigned long TRIG_DEBOUNCE_MS = 50;
 
 // ─── CCD state ────────────────────────────────────
-int      integrationMs = 5;
-uint16_t ccdBuffer[3648];
+int integrationMs = 5;
 
 // ─── Helper: apply microstep index ────────────────
 void applyMstep(int idx) {
@@ -129,47 +128,61 @@ inline void ccdClock() {
   delayMicroseconds(5);
 }
 
-// ─── CCD: perform one integration + readout ───────
-// integrationMs controls how long the sensor integrates light before readout.
-// Sequence (per TCD1304DG datasheet):
-//   Integration clear: ICG LOW → SH HIGH 4 clocks → SH LOW → ICG HIGH → wait integrationMs
-//   Readout:           ICG LOW → SH HIGH 4 clocks → SH LOW → ICG HIGH
-//                      → 32 dummy clocks → 3648 pixel reads → done
-void ccdReadout() {
-  // ── Phase 1: Integration clear ────────────────────────────────────────────
-  digitalWrite(ccdIcgPin, LOW);
-  delayMicroseconds(1);
-  digitalWrite(ccdShPin, HIGH);
+// ─── CCD: integration clear + start of readout ────
+// Call before either ccdStreamPixels() or ccdPeakOnly().
+void ccdStartReadout() {
+  // Phase 1: Integration clear
+  digitalWrite(ccdIcgPin, LOW);  delayMicroseconds(1);
+  digitalWrite(ccdShPin,  HIGH);
   ccdClock(); ccdClock(); ccdClock(); ccdClock();
-  digitalWrite(ccdShPin, LOW);
-  delayMicroseconds(1);
+  digitalWrite(ccdShPin,  LOW);  delayMicroseconds(1);
   digitalWrite(ccdIcgPin, HIGH);
-
-  // Integration time
   delay(integrationMs);
 
-  // ── Phase 2: Shift out pixels ─────────────────────────────────────────────
-  digitalWrite(ccdIcgPin, LOW);
-  delayMicroseconds(1);
-  digitalWrite(ccdShPin, HIGH);
+  // Phase 2: Transfer charge to shift register
+  digitalWrite(ccdIcgPin, LOW);  delayMicroseconds(1);
+  digitalWrite(ccdShPin,  HIGH);
   ccdClock(); ccdClock(); ccdClock(); ccdClock();
-  digitalWrite(ccdShPin, LOW);
-  delayMicroseconds(1);
+  digitalWrite(ccdShPin,  LOW);  delayMicroseconds(1);
   digitalWrite(ccdIcgPin, HIGH);
 
-  // 32 dummy clocks to flush shift register preamble
-  for (int i = 0; i < 32; i++) {
-    ccdClock();
-  }
+  // 32 dummy clocks to flush preamble
+  for (int i = 0; i < 32; i++) ccdClock();
+}
 
-  // Read 3648 pixels
+// ─── CCD: stream all 3648 pixels over Serial ──────
+// Sends "CCD_DATA:<v0>,<v1>,...\nCCD_DONE\n" with no RAM buffer.
+void ccdStreamPixels() {
+  ccdStartReadout();
+  Serial.print(F("CCD_DATA:"));
   for (int i = 0; i < 3648; i++) {
-    digitalWrite(ccdClkPin, HIGH);
-    delayMicroseconds(5);
-    ccdBuffer[i] = (uint16_t)analogRead(ccdOsPin);
-    digitalWrite(ccdClkPin, LOW);
-    delayMicroseconds(5);
+    digitalWrite(ccdClkPin, HIGH); delayMicroseconds(5);
+    uint16_t v = (uint16_t)analogRead(ccdOsPin);
+    digitalWrite(ccdClkPin, LOW);  delayMicroseconds(5);
+    if (i > 0) Serial.print(',');
+    Serial.print(v);
   }
+  Serial.println();
+  Serial.println(F("CCD_DONE"));
+}
+
+// ─── CCD: compute peak + sum only (no buffer) ─────
+// Returns result via Serial: "INTENSITY sum=X peak=Y pixel=Z"
+void ccdIntensityOnly() {
+  ccdStartReadout();
+  unsigned long sum      = 0;
+  uint16_t      peak     = 0;
+  int           peakPixel = 0;
+  for (int i = 0; i < 3648; i++) {
+    digitalWrite(ccdClkPin, HIGH); delayMicroseconds(5);
+    uint16_t v = (uint16_t)analogRead(ccdOsPin);
+    digitalWrite(ccdClkPin, LOW);  delayMicroseconds(5);
+    sum += v;
+    if (v > peak) { peak = v; peakPixel = i; }
+  }
+  Serial.print(F("INTENSITY sum="));  Serial.print(sum);
+  Serial.print(F(" peak="));          Serial.print(peak);
+  Serial.print(F(" pixel="));         Serial.println(peakPixel);
 }
 
 // ─── setup ────────────────────────────────────────
@@ -299,38 +312,15 @@ void loop() {
       return;
     }
 
-    // CCD_INTENSITY
+    // CCD_INTENSITY — returns peak + sum only (fast, no buffer needed)
     if (input == F("CCD_INTENSITY")) {
-      ccdReadout();
-      unsigned long sum  = 0;
-      uint16_t peak      = 0;
-      int      peakPixel = 0;
-      for (int i = 0; i < 3648; i++) {
-        sum += ccdBuffer[i];
-        if (ccdBuffer[i] > peak) {
-          peak      = ccdBuffer[i];
-          peakPixel = i;
-        }
-      }
-      Serial.print(F("INTENSITY sum="));
-      Serial.print(sum);
-      Serial.print(F(" peak="));
-      Serial.print(peak);
-      Serial.print(F(" pixel="));
-      Serial.println(peakPixel);
+      ccdIntensityOnly();
       return;
     }
 
-    // CCD_READ
+    // CCD_READ — streams all 3648 pixel values over serial (no buffer)
     if (input == F("CCD_READ")) {
-      ccdReadout();
-      Serial.print(F("CCD_DATA:"));
-      for (int i = 0; i < 3648; i++) {
-        if (i > 0) Serial.print(',');
-        Serial.print(ccdBuffer[i]);
-      }
-      Serial.println();
-      Serial.println(F("CCD_DONE"));
+      ccdStreamPixels();
       return;
     }
 
