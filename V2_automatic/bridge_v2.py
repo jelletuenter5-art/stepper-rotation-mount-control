@@ -151,7 +151,7 @@ _auto_stop_event    = threading.Event()
 # Auto-tracker parameters (set by /auto_start)
 _auto_dither_steps    = 50
 _auto_track_steps     = 20
-_auto_drop_threshold  = 0.30
+_auto_drop_threshold  = 0.05
 _auto_poll_interval   = 0.200     # seconds
 
 
@@ -172,33 +172,94 @@ def _read_ccd_intensity():
     return parts["sum"], parts.get("peak", 0), parts.get("pixel", 0)
 
 
+def _hill_climb(dither, track):
+    """
+    Probe CW vs CCW, then walk in the better direction until intensity peaks.
+    Returns the settled intensity after the climb, or None on error.
+    Caller must NOT hold _serial_lock or _auto_lock.
+    """
+    global _auto_intensity, _auto_steps_taken, _auto_direction
+    try:
+        _move_steps("CW", dither)
+        i_cw, _, _  = _read_ccd_intensity()
+        _move_steps("CCW", dither)
+        i_base, _, _ = _read_ccd_intensity()
+    except Exception:
+        return None
+
+    if i_cw >= i_base:
+        search_dir, opp_dir = "CW", "CCW"
+    else:
+        search_dir, opp_dir = "CCW", "CW"
+
+    with _auto_lock:
+        _auto_direction = search_dir
+
+    current_best = i_base
+    while not _auto_stop_event.is_set():
+        try:
+            _move_steps(search_dir, track)
+            new_i, _, _ = _read_ccd_intensity()
+        except Exception:
+            break
+        with _auto_lock:
+            _auto_intensity    = new_i
+            _auto_steps_taken += track
+        if new_i < current_best:
+            try:
+                _move_steps(opp_dir, track // 2)
+            except Exception:
+                pass
+            break
+        current_best = new_i
+
+    try:
+        settled, _, _ = _read_ccd_intensity()
+        return settled
+    except Exception:
+        return current_best
+
+
 def _auto_tracker_thread():
     global _auto_running, _auto_state, _auto_intensity, _auto_peak_intensity
     global _auto_direction, _auto_steps_taken
 
     try:
-        # Initial read to establish baseline
+        # ── Initial read ──────────────────────────────────────────────────
         try:
             intensity_sum, _, _ = _read_ccd_intensity()
-        except Exception as e:
+        except Exception:
             with _auto_lock:
                 _auto_state   = "idle"
                 _auto_running = False
             return
 
         with _auto_lock:
-            _auto_peak_intensity = intensity_sum
             _auto_intensity      = intensity_sum
-            _auto_state          = "tracking"
+            _auto_peak_intensity = intensity_sum
+            _auto_state          = "searching"
             _auto_steps_taken    = 0
             _auto_direction      = "none"
+            dither = _auto_dither_steps
+            track  = _auto_track_steps
 
+        # ── Initial hill-climb to find peak before tracking ───────────────
+        settled = _hill_climb(dither, track)
+        if settled is not None:
+            with _auto_lock:
+                _auto_peak_intensity = settled
+                _auto_intensity      = settled
+
+        with _auto_lock:
+            _auto_state     = "tracking"
+            _auto_direction = "none"
+
+        # ── Main tracking loop ────────────────────────────────────────────
         while not _auto_stop_event.is_set():
             time.sleep(_auto_poll_interval)
             if _auto_stop_event.is_set():
                 break
 
-            # Read current intensity
             try:
                 current_sum, _, _ = _read_ccd_intensity()
             except Exception:
@@ -206,67 +267,23 @@ def _auto_tracker_thread():
 
             with _auto_lock:
                 _auto_intensity = current_sum
-                peak = _auto_peak_intensity
+                peak        = _auto_peak_intensity
                 drop_thresh = _auto_drop_threshold
-                dither = _auto_dither_steps
-                track  = _auto_track_steps
+                dither      = _auto_dither_steps
+                track       = _auto_track_steps
 
             if current_sum < peak * (1.0 - drop_thresh):
                 # ── Intensity dropped — search for new peak ───────────────
                 with _auto_lock:
-                    _auto_state      = "searching"
+                    _auto_state       = "searching"
                     _auto_steps_taken = 0
 
-                # Gradient probe: try CW dither
-                try:
-                    _move_steps("CW", dither)
-                    i_cw_sum, _, _ = _read_ccd_intensity()
-                    _move_steps("CCW", dither)   # back to start
-                    i_start_sum, _, _ = _read_ccd_intensity()
-                except Exception:
+                settled = _hill_climb(dither, track)
+                if settled is None:
                     continue
 
-                if i_cw_sum >= i_start_sum:
-                    search_dir = "CW"
-                    opp_dir    = "CCW"
-                else:
-                    search_dir = "CCW"
-                    opp_dir    = "CW"
-
                 with _auto_lock:
-                    _auto_direction = search_dir
-
-                current_best = i_start_sum
-
-                # Walk in search_dir until intensity peaks
-                while not _auto_stop_event.is_set():
-                    try:
-                        _move_steps(search_dir, track)
-                        new_i_sum, _, _ = _read_ccd_intensity()
-                    except Exception:
-                        break
-
-                    with _auto_lock:
-                        _auto_intensity    = new_i_sum
-                        _auto_steps_taken += track
-
-                    if new_i_sum < current_best:
-                        # Overshot — step back half
-                        try:
-                            _move_steps(opp_dir, track // 2)
-                        except Exception:
-                            pass
-                        break
-                    current_best = new_i_sum
-
-                # Re-read after settling
-                try:
-                    settled_sum, _, _ = _read_ccd_intensity()
-                except Exception:
-                    settled_sum = current_best
-
-                with _auto_lock:
-                    _auto_peak_intensity = settled_sum
+                    _auto_peak_intensity = settled
                     _auto_intensity      = settled_sum
                     _auto_state          = "tracking"
                     _auto_direction      = "none"

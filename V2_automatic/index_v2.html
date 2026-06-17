@@ -634,12 +634,11 @@ select:focus { border-color: var(--cyan); }
     A small mirror picks off ~1–2% of the beam and directs it onto the <strong style="color:var(--cyan);">TCD1304DG</strong> linear CCD sensor (3648 pixels).
     The sensor measures how much light it receives. When the diffraction grating is at the <strong>correct angle</strong> for the target wavelength,
     the beam is aligned and the CCD sees <strong style="color:var(--green);">maximum intensity</strong>.<br><br>
-    The system works in two phases:<br>
-    &nbsp;&nbsp;<strong style="color:var(--yellow);">① Search (dither)</strong> — the motor steps in one direction, reads the CCD after each move, and checks whether intensity went up or down.
-    If it goes down, the motor reverses. It keeps doing this until it finds the peak intensity position.<br>
-    &nbsp;&nbsp;<strong style="color:var(--green);">② Track</strong> — once the peak is found, the motor holds position and keeps polling the CCD.
-    If the beam wavelength changes (intensity drops), it automatically re-enters search mode to find the new peak.<br><br>
-    <strong style="color:var(--red);">Important:</strong> run <strong>Seek Home</strong> first to establish the zero position before starting auto-track.
+    The system works in three phases:<br>
+    &nbsp;&nbsp;<strong style="color:var(--yellow);">① Initial search</strong> — immediately on start, the motor dithers CW and CCW to find which direction gives more intensity, then walks that way until intensity peaks. This finds the optimal crystal angle for the current wavelength.<br>
+    &nbsp;&nbsp;<strong style="color:var(--green);">② Track</strong> — the motor holds position and keeps reading the CCD every 200 ms. When intensity is stable, nothing moves.<br>
+    &nbsp;&nbsp;<strong style="color:var(--yellow);">③ Re-search</strong> — if intensity drops by more than the drop threshold (default 5%), the wavelength has changed and the crystal is misaligned. The motor automatically searches for the new peak angle.<br><br>
+    <strong style="color:var(--red);">Important:</strong> run <strong>Seek Home</strong> first. For this to work the CCD must <strong>not be saturated</strong> — if the graph shows a flat top at max, reduce the laser power or increase distance so you see a clear peak, not a filled bar.
   </div>
 
   <!-- Status bar -->
@@ -704,7 +703,7 @@ select:focus { border-color: var(--cyan); }
         <div class="config-field-row">
           <label title="Intensity drop % that triggers a re-search">Drop threshold</label>
           <div class="config-input-wrap">
-            <input type="number" id="autoDropPct" value="30" min="1" max="99">
+            <input type="number" id="autoDropPct" value="5" min="1" max="99">
             <span class="unit">%</span>
           </div>
         </div>
@@ -721,8 +720,8 @@ select:focus { border-color: var(--cyan); }
       <!-- Drop threshold explanation -->
       <div style="margin-top:10px;padding:10px 12px;background:var(--yellow-bg);border:1px solid var(--yellow-br);border-radius:4px;font-size:9px;color:var(--yellow);line-height:1.8;">
         <strong>Drop threshold</strong> (currently shown above) = how much the intensity must fall before the system decides the beam has moved and starts searching again.<br>
-        Example: if the best intensity was <strong>50000</strong> and threshold is <strong>30%</strong>, a drop below <strong>35000</strong> triggers a new search.<br>
-        Set lower (10–20%) for sensitive real-time tracking. Set higher (40–50%) if the beam is noisy and you get false re-searches.
+        Example: if best intensity was <strong>50000</strong> and threshold is <strong>5%</strong>, a drop below <strong>47500</strong> triggers a new search.<br>
+        For optical alignment, 5% is a good starting point. Increase to 10–20% only if vibrations cause false re-searches.
       </div>
     </div>
 
