@@ -152,8 +152,9 @@ void ccdStartReadout() {
 
 // ─── CCD: stream pixels over Serial (subsampled) ──
 // Clocks all 3648 pixels (required for correct CCD operation) but only
-// transmits every CCD_STRIDE-th pixel to keep serial transfer fast at 9600.
-// 3648 / 8 = 456 values → ~2.5 s at 9600 baud instead of 19 s.
+// transmits every CCD_STRIDE-th pixel to keep serial transfer fast.
+// TCD1304DG output is inverted (dark≈high, bright≈low), so we send 1023-v
+// so that 0 = dark, 1023 = bright (intuitive for the graph and auto-tracker).
 #define CCD_STRIDE 8
 void ccdStreamPixels() {
   ccdStartReadout();
@@ -161,7 +162,7 @@ void ccdStreamPixels() {
   bool first = true;
   for (int i = 0; i < 3648; i++) {
     digitalWrite(ccdClkPin, HIGH); delayMicroseconds(5);
-    uint16_t v = (uint16_t)analogRead(ccdOsPin);
+    uint16_t v = 1023u - (uint16_t)analogRead(ccdOsPin);
     digitalWrite(ccdClkPin, LOW);  delayMicroseconds(5);
     if (i % CCD_STRIDE == 0) {
       if (!first) Serial.print(',');
@@ -182,7 +183,7 @@ void ccdIntensityOnly() {
   int           peakPixel = 0;
   for (int i = 0; i < 3648; i++) {
     digitalWrite(ccdClkPin, HIGH); delayMicroseconds(5);
-    uint16_t v = (uint16_t)analogRead(ccdOsPin);
+    uint16_t v = 1023u - (uint16_t)analogRead(ccdOsPin);
     digitalWrite(ccdClkPin, LOW);  delayMicroseconds(5);
     sum += v;
     if (v > peak) { peak = v; peakPixel = i; }

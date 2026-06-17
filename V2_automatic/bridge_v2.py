@@ -72,6 +72,8 @@ def _cmd(command_bytes, timeout=2):
         old_timeout = ser.timeout
         ser.timeout = timeout
         try:
+            ser.write(b"\n")
+            time.sleep(0.05)
             ser.reset_input_buffer()
             ser.write(command_bytes)
             line = ser.readline().decode(errors="replace").strip()
@@ -86,6 +88,8 @@ def _cmd_multi(command_bytes, stop_prefixes, timeout=2, max_lines=20):
         old_timeout = ser.timeout
         ser.timeout = timeout
         try:
+            ser.write(b"\n")
+            time.sleep(0.05)
             ser.reset_input_buffer()
             ser.write(command_bytes)
             responses = []
@@ -584,6 +588,8 @@ def ccd_read():
             old_timeout = ser.timeout
             ser.timeout = 10
             try:
+                ser.write(b"\n")
+                time.sleep(0.05)
                 ser.reset_input_buffer()
                 ser.write(b"CCD_READ\n")
                 data_line = ""
