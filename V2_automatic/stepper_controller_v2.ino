@@ -150,17 +150,24 @@ void ccdStartReadout() {
   for (int i = 0; i < 32; i++) ccdClock();
 }
 
-// ─── CCD: stream all 3648 pixels over Serial ──────
-// Sends "CCD_DATA:<v0>,<v1>,...\nCCD_DONE\n" with no RAM buffer.
+// ─── CCD: stream pixels over Serial (subsampled) ──
+// Clocks all 3648 pixels (required for correct CCD operation) but only
+// transmits every CCD_STRIDE-th pixel to keep serial transfer fast at 9600.
+// 3648 / 8 = 456 values → ~2.5 s at 9600 baud instead of 19 s.
+#define CCD_STRIDE 8
 void ccdStreamPixels() {
   ccdStartReadout();
   Serial.print(F("CCD_DATA:"));
+  bool first = true;
   for (int i = 0; i < 3648; i++) {
     digitalWrite(ccdClkPin, HIGH); delayMicroseconds(5);
     uint16_t v = (uint16_t)analogRead(ccdOsPin);
     digitalWrite(ccdClkPin, LOW);  delayMicroseconds(5);
-    if (i > 0) Serial.print(',');
-    Serial.print(v);
+    if (i % CCD_STRIDE == 0) {
+      if (!first) Serial.print(',');
+      Serial.print(v);
+      first = false;
+    }
   }
   Serial.println();
   Serial.println(F("CCD_DONE"));
