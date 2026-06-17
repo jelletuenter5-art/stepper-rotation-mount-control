@@ -152,7 +152,7 @@ _auto_stop_event    = threading.Event()
 _auto_dither_steps    = 50
 _auto_track_steps     = 20
 _auto_drop_threshold  = 0.05
-_auto_poll_interval   = 0.200     # seconds
+_auto_poll_interval   = 0.100     # seconds
 
 
 def _read_ccd_intensity():
@@ -175,28 +175,31 @@ def _read_ccd_intensity():
 
 def _hill_climb(dither, track):
     """
-    Probe CW vs CCW, then walk in the better direction until intensity peaks.
-    Returns the settled intensity after the climb, or None on error.
+    Probe CW vs CCW (using track-size steps for the probe to stay fast),
+    then walk in the better direction until intensity peaks.
+    Returns best intensity found, or None on error.
     Caller must NOT hold _serial_lock or _auto_lock.
     """
     global _auto_intensity, _auto_steps_taken, _auto_direction
+    probe = max(track, 10)
     try:
-        _move_steps("CW", dither)
-        i_cw, _, _  = _read_ccd_intensity()
-        _move_steps("CCW", dither)
+        _move_steps("CW", probe)
+        i_cw, _, _ = _read_ccd_intensity()
+        _move_steps("CCW", probe)
         i_base, _, _ = _read_ccd_intensity()
     except Exception:
         return None
 
     if i_cw >= i_base:
         search_dir, opp_dir = "CW", "CCW"
+        current_best = i_cw
     else:
         search_dir, opp_dir = "CCW", "CW"
+        current_best = i_base
 
     with _auto_lock:
         _auto_direction = search_dir
 
-    current_best = i_base
     while not _auto_stop_event.is_set():
         try:
             _move_steps(search_dir, track)
@@ -207,6 +210,7 @@ def _hill_climb(dither, track):
             _auto_intensity    = new_i
             _auto_steps_taken += track
         if new_i < current_best:
+            # Overshot — step back half a track
             try:
                 _move_steps(opp_dir, track // 2)
             except Exception:
@@ -214,11 +218,7 @@ def _hill_climb(dither, track):
             break
         current_best = new_i
 
-    try:
-        settled, _, _ = _read_ccd_intensity()
-        return settled
-    except Exception:
-        return current_best
+    return current_best
 
 
 def _auto_tracker_thread():
@@ -285,7 +285,7 @@ def _auto_tracker_thread():
 
                 with _auto_lock:
                     _auto_peak_intensity = settled
-                    _auto_intensity      = settled_sum
+                    _auto_intensity      = settled
                     _auto_state          = "tracking"
                     _auto_direction      = "none"
 
