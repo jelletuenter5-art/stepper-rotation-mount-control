@@ -110,9 +110,15 @@ def _move_steps(direction, steps):
     """Send a move command and update _motor_pos. Caller must NOT hold _serial_lock."""
     global _motor_pos
     timeout = max(10, int(steps) * 0.002)
+    cmd = f"{direction} {steps}\n".encode()
+    stop_prefixes = ["Done.", "Stopped.", "ERR:", "AT_HOME", "AT_CW_LIMIT", "POS:"]
+    with _serial_lock:
+        ser.write(b"\n")
+        time.sleep(0.05)
+        ser.reset_input_buffer()
     responses = _cmd_multi(
-        f"{direction} {steps}\n".encode(),
-        stop_prefixes=["Done.", "Stopped.", "ERR:", "AT_HOME", "AT_CW_LIMIT", "POS:"],
+        cmd,
+        stop_prefixes=stop_prefixes,
         timeout=timeout
     )
     pos_line = next((l for l in responses if l.startswith("POS:")), None)
@@ -313,13 +319,45 @@ def move():
         return jsonify({"ok": False, "error": "Not connected"})
     direction = request.json.get("direction")
     steps     = request.json.get("steps")
-    print(f"[MOVE] sending → direction={direction!r} steps={steps!r}")
     timeout   = max(10, int(steps) * 0.002)
-    responses = _cmd_multi(
-        f"{direction} {steps}\n".encode(),
-        stop_prefixes=["Done.", "Stopped.", "ERR:", "AT_HOME", "AT_CW_LIMIT", "POS:"],
-        timeout=timeout
-    )
+    cmd       = f"{direction} {steps}\n".encode()
+    stop_prefixes = ["Done.", "Stopped.", "ERR:", "AT_HOME", "AT_CW_LIMIT", "POS:"]
+
+    _stop_reader()
+    try:
+        with _serial_lock:
+            # flush any stale bytes before sending
+            ser.write(b"\n")
+            time.sleep(0.1)
+            ser.reset_input_buffer()
+            ser.write(cmd)
+            old_timeout = ser.timeout
+            ser.timeout = timeout
+            responses   = []
+            retried     = False
+            try:
+                for _ in range(20):
+                    line = ser.readline().decode(errors="replace").strip()
+                    if not line:
+                        break
+                    responses.append(line)
+                    if any(line.startswith(p) for p in stop_prefixes):
+                        if line.startswith("ERR:") and not retried:
+                            retried = True
+                            time.sleep(0.15)
+                            ser.reset_input_buffer()
+                            ser.write(cmd)
+                            responses = []
+                            continue
+                        extra = ser.readline().decode(errors="replace").strip()
+                        if extra:
+                            responses.append(extra)
+                        break
+            finally:
+                ser.timeout = old_timeout
+    finally:
+        _start_reader()
+
     # Update _motor_pos from POS: line if present
     pos_line = next((l for l in responses if l.startswith("POS:")), None)
     if pos_line:

@@ -277,8 +277,7 @@ void loop() {
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     input.trim();
-    // DEBUG: echo back exactly what was received (remove once issue is found)
-    Serial.print(F("DBG:'")); Serial.print(input); Serial.print(F("' len=")); Serial.println(input.length());
+    input.toUpperCase();
 
     // STOP
     if (input == F("STOP")) {
