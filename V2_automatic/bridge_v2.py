@@ -180,7 +180,7 @@ def _read_ccd_intensity():
     return corrected_sum, parts.get("peak", 0), parts.get("pixel", 0)
 
 
-def _read_intensity_avg(n=3):
+def _read_intensity_avg(n=2):
     """Average n CCD intensity readings to smooth out sensor noise."""
     total = 0
     for _ in range(n):
@@ -189,68 +189,182 @@ def _read_intensity_avg(n=3):
     return total // n
 
 
-def _hill_climb(dither, track):
+def _update_best(val):
+    """Update _auto_intensity and _auto_best_ever under lock."""
+    global _auto_best_ever
+    with _auto_lock:
+        _auto_intensity = val
+        if val > _auto_best_ever:
+            _auto_best_ever = val
+
+
+def _wide_scan(dither, n_scan=6):
     """
-    Probe CW vs CCW using dither-sized steps (large enough to detect direction
-    clearly above noise), then walk toward the better side in track-sized steps
-    until intensity drops. Returns best intensity found, or None on error.
-    Caller must NOT hold _serial_lock or _auto_lock.
+    Phase 1 — Wide scan.
+    Step dither-sized steps in CW direction (n_scan times), then come back and
+    scan CCW (n_scan times), recording intensity at every position.
+    Navigate to the position with the highest intensity reading.
+    Returns (best_intensity, best_motor_pos) or (None, None) on error.
     """
-    global _auto_intensity, _auto_best_ever, _auto_direction
-    probe = max(dither, track)
+    global _auto_direction
+    positions = []
+
+    # Baseline at current position
     try:
-        _move_steps("CW", probe)
-        time.sleep(0.05)
-        i_cw = _read_intensity_avg(2)
-        _move_steps("CCW", probe)
-        time.sleep(0.05)
-        i_base = _read_intensity_avg(2)
+        val = _read_intensity_avg()
+        positions.append((_motor_pos, val))
+        _update_best(val)
+    except Exception:
+        return None, None
+
+    start_pos = _motor_pos
+
+    # Scan CW
+    with _auto_lock:
+        _auto_direction = "CW"
+    for _ in range(n_scan):
+        if _auto_stop_event.is_set():
+            break
+        try:
+            _move_steps("CW", dither)
+            time.sleep(0.04)
+            val = _read_intensity_avg()
+            positions.append((_motor_pos, val))
+            _update_best(val)
+        except Exception:
+            break
+
+    # Return to start
+    if _motor_pos != start_pos:
+        try:
+            _move_steps("CCW", abs(_motor_pos - start_pos))
+        except Exception:
+            pass
+
+    # Scan CCW
+    with _auto_lock:
+        _auto_direction = "CCW"
+    for _ in range(n_scan):
+        if _auto_stop_event.is_set():
+            break
+        try:
+            _move_steps("CCW", dither)
+            time.sleep(0.04)
+            val = _read_intensity_avg()
+            positions.append((_motor_pos, val))
+            _update_best(val)
+        except Exception:
+            break
+
+    # Return to start
+    if _motor_pos != start_pos:
+        try:
+            _move_steps("CW", abs(_motor_pos - start_pos))
+        except Exception:
+            pass
+
+    if not positions:
+        return None, None
+
+    best_pos, best_val = max(positions, key=lambda x: x[1])
+    return best_val, best_pos
+
+
+def _fine_tune(track):
+    """
+    Phase 2 — Fine-tune.
+    Starting from the position found by wide scan, take small track-sized steps.
+    Stop IMMEDIATELY when a step does not improve intensity (at or past peak).
+    Returns best intensity found, or None on error.
+    """
+    global _auto_direction
+    try:
+        current_best = _read_intensity_avg()
+        _update_best(current_best)
     except Exception:
         return None
 
-    if i_cw >= i_base:
+    # Probe CW vs CCW with one track step each to choose direction
+    try:
+        _move_steps("CW", track)
+        time.sleep(0.04)
+        i_cw = _read_intensity_avg()
+        _move_steps("CCW", track)   # back to start
+        time.sleep(0.04)
+        i_back = _read_intensity_avg()
+    except Exception:
+        return current_best
+
+    if i_cw > current_best:
         search_dir, opp_dir = "CW", "CCW"
         current_best = i_cw
-    else:
+    elif i_back > current_best:
+        # Coming back was better — CCW direction
         search_dir, opp_dir = "CCW", "CW"
-        current_best = i_base
+        current_best = i_back
+    else:
+        # Already at peak — neither direction improved
+        _update_best(current_best)
+        return current_best
 
     with _auto_lock:
         _auto_direction = search_dir
-        _auto_intensity = current_best
-        if current_best > _auto_best_ever:
-            _auto_best_ever = current_best
+    _update_best(current_best)
 
-    no_improve = 0
     while not _auto_stop_event.is_set():
         try:
             _move_steps(search_dir, track)
-            time.sleep(0.05)
-            new_i = _read_intensity_avg(2)
+            time.sleep(0.04)
+            new_i = _read_intensity_avg()
         except Exception:
             break
-        with _auto_lock:
-            _auto_intensity = new_i
-            if new_i > _auto_best_ever:
-                _auto_best_ever = new_i
-        if new_i < current_best * 0.95:
-            # Clearly dropped — overshot, step back half
+        _update_best(new_i)
+        if new_i <= current_best:
+            # Not improving — step back and stop (we just passed the peak)
             try:
-                _move_steps(opp_dir, track // 2)
+                _move_steps(opp_dir, track)
             except Exception:
                 pass
             break
-        if new_i > current_best:
-            # Still improving — keep walking
-            current_best = new_i
-            no_improve = 0
-        else:
-            # Flat (at or near peak) — stop after 2 consecutive non-improving steps
-            no_improve += 1
-            if no_improve >= 2:
-                break
+        current_best = new_i
 
     return current_best
+
+
+def _find_peak(dither, track, n_scan=6):
+    """
+    Full two-phase peak search:
+      1. Wide scan (dither-step grid, n_scan positions each direction) → global max
+      2. Navigate to global max position
+      3. Fine-tune around it with track-sized steps, stop when no improvement
+    Returns best intensity, or None on error.
+    """
+    global _auto_direction
+
+    # Phase 1: wide scan
+    best_val, best_pos = _wide_scan(dither, n_scan)
+    if best_val is None:
+        return None
+
+    # Navigate to the best position found
+    if _motor_pos != best_pos:
+        diff = best_pos - _motor_pos
+        with _auto_lock:
+            _auto_direction = "CW" if diff > 0 else "CCW"
+        try:
+            if diff > 0:
+                _move_steps("CW", abs(diff))
+            else:
+                _move_steps("CCW", abs(diff))
+        except Exception:
+            pass
+
+    with _auto_lock:
+        _auto_direction = "none"
+
+    # Phase 2: fine-tune
+    settled = _fine_tune(track)
+    return settled if settled is not None else best_val
 
 
 def _auto_tracker_thread():
@@ -280,12 +394,14 @@ def _auto_tracker_thread():
             dither = _auto_dither_steps
             track  = _auto_track_steps
 
-        # ── Initial hill-climb to find peak before tracking ───────────────
-        settled = _hill_climb(dither, track)
+        # ── Phase 1+2: wide scan then fine-tune ───────────────────────────
+        settled = _find_peak(dither, track)
         if settled is not None:
             with _auto_lock:
                 _auto_peak_intensity = settled
                 _auto_intensity      = settled
+                if settled > _auto_best_ever:
+                    _auto_best_ever = settled
 
         with _auto_lock:
             _auto_state     = "tracking"
@@ -327,7 +443,7 @@ def _auto_tracker_thread():
                 with _auto_lock:
                     _auto_state = "searching"
 
-                settled = _hill_climb(dither, track)
+                settled = _find_peak(dither, track)
                 if settled is None:
                     continue
 
