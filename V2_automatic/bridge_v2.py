@@ -221,6 +221,7 @@ def _hill_climb(dither, track):
         if current_best > _auto_best_ever:
             _auto_best_ever = current_best
 
+    no_improve = 0
     while not _auto_stop_event.is_set():
         try:
             _move_steps(search_dir, track)
@@ -232,15 +233,22 @@ def _hill_climb(dither, track):
             _auto_intensity = new_i
             if new_i > _auto_best_ever:
                 _auto_best_ever = new_i
-        # Only stop if clearly dropped (>5% below best) — avoids stopping on noise
         if new_i < current_best * 0.95:
+            # Clearly dropped — overshot, step back half
             try:
                 _move_steps(opp_dir, track // 2)
             except Exception:
                 pass
             break
         if new_i > current_best:
+            # Still improving — keep walking
             current_best = new_i
+            no_improve = 0
+        else:
+            # Flat (at or near peak) — stop after 2 consecutive non-improving steps
+            no_improve += 1
+            if no_improve >= 2:
+                break
 
     return current_best
 
