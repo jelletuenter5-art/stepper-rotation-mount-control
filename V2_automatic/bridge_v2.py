@@ -111,8 +111,8 @@ def _cmd_multi(command_bytes, stop_prefixes, timeout=2, max_lines=20):
 
 # ─── Helper: move steps via serial (used by auto-tracker) ────────────────────
 def _move_steps(direction, steps):
-    """Send a move command and update _motor_pos. Caller must NOT hold _serial_lock."""
-    global _motor_pos
+    """Send a move command, update _motor_pos and cumulative step counters."""
+    global _motor_pos, _auto_steps_taken, _auto_steps_cw, _auto_steps_ccw
     timeout = max(10, int(steps) * 0.002)
     cmd = f"{direction} {steps}\n".encode()
     stop_prefixes = ["Done.", "Stopped.", "ERR:", "AT_HOME", "AT_CW_LIMIT", "POS:"]
@@ -120,11 +120,7 @@ def _move_steps(direction, steps):
         ser.write(b"\n")
         time.sleep(0.05)
         ser.reset_input_buffer()
-    responses = _cmd_multi(
-        cmd,
-        stop_prefixes=stop_prefixes,
-        timeout=timeout
-    )
+    responses = _cmd_multi(cmd, stop_prefixes=stop_prefixes, timeout=timeout)
     pos_line = next((l for l in responses if l.startswith("POS:")), None)
     if pos_line:
         try:
@@ -134,6 +130,13 @@ def _move_steps(direction, steps):
     else:
         delta = steps if direction == "CW" else -steps
         _motor_pos += delta
+    # Accumulate step counts for the UI
+    with _auto_lock:
+        _auto_steps_taken += steps
+        if direction == "CW":
+            _auto_steps_cw  += steps
+        else:
+            _auto_steps_ccw += steps
     return responses
 
 
@@ -142,9 +145,12 @@ _auto_lock          = threading.Lock()
 _auto_running       = False
 _auto_state         = "idle"      # idle | searching | tracking
 _auto_intensity     = 0
-_auto_peak_intensity= 0
+_auto_peak_intensity= 0           # current tracking baseline (resets per search)
+_auto_best_ever     = 0           # all-time highest sum seen (never decreases)
 _auto_direction     = "none"      # CW | CCW | none
-_auto_steps_taken   = 0
+_auto_steps_taken   = 0           # cumulative total steps (never resets)
+_auto_steps_cw      = 0           # cumulative CW steps
+_auto_steps_ccw     = 0           # cumulative CCW steps
 _auto_thread        = None
 _auto_stop_event    = threading.Event()
 
@@ -203,12 +209,14 @@ def _hill_climb(dither, track):
     while not _auto_stop_event.is_set():
         try:
             _move_steps(search_dir, track)
+            time.sleep(0.05)   # brief settle before reading
             new_i, _, _ = _read_ccd_intensity()
         except Exception:
             break
         with _auto_lock:
-            _auto_intensity    = new_i
-            _auto_steps_taken += track
+            _auto_intensity = new_i
+            if new_i > _auto_best_ever:
+                _auto_best_ever = new_i
         if new_i < current_best:
             # Overshot — step back half a track
             try:
@@ -223,7 +231,8 @@ def _hill_climb(dither, track):
 
 def _auto_tracker_thread():
     global _auto_running, _auto_state, _auto_intensity, _auto_peak_intensity
-    global _auto_direction, _auto_steps_taken
+    global _auto_best_ever, _auto_direction, _auto_steps_taken
+    global _auto_steps_cw, _auto_steps_ccw
 
     try:
         # ── Initial read ──────────────────────────────────────────────────
@@ -238,8 +247,11 @@ def _auto_tracker_thread():
         with _auto_lock:
             _auto_intensity      = intensity_sum
             _auto_peak_intensity = intensity_sum
+            _auto_best_ever      = intensity_sum
             _auto_state          = "searching"
             _auto_steps_taken    = 0
+            _auto_steps_cw       = 0
+            _auto_steps_ccw      = 0
             _auto_direction      = "none"
             dither = _auto_dither_steps
             track  = _auto_track_steps
@@ -276,8 +288,7 @@ def _auto_tracker_thread():
             if current_sum < peak * (1.0 - drop_thresh):
                 # ── Intensity dropped — search for new peak ───────────────
                 with _auto_lock:
-                    _auto_state       = "searching"
-                    _auto_steps_taken = 0
+                    _auto_state = "searching"
 
                 settled = _hill_climb(dither, track)
                 if settled is None:
@@ -286,14 +297,18 @@ def _auto_tracker_thread():
                 with _auto_lock:
                     _auto_peak_intensity = settled
                     _auto_intensity      = settled
+                    if settled > _auto_best_ever:
+                        _auto_best_ever  = settled
                     _auto_state          = "tracking"
                     _auto_direction      = "none"
 
             else:
-                # Intensity OK — update peak if improved
+                # Intensity OK — update tracking baseline and best-ever if improved
                 with _auto_lock:
                     if current_sum > _auto_peak_intensity:
                         _auto_peak_intensity = current_sum
+                    if current_sum > _auto_best_ever:
+                        _auto_best_ever = current_sum
                     _auto_state     = "tracking"
                     _auto_direction = "none"
 
@@ -721,9 +736,12 @@ def auto_status():
             "state":         _auto_state,
             "intensity":     _auto_intensity,
             "peak_intensity":_auto_peak_intensity,
+            "best_ever":     _auto_best_ever,
             "motor_pos":     _motor_pos,
             "direction":     _auto_direction,
             "steps_taken":   _auto_steps_taken,
+            "steps_cw":      _auto_steps_cw,
+            "steps_ccw":     _auto_steps_ccw,
         })
 
 

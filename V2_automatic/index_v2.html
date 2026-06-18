@@ -658,7 +658,7 @@ select:focus { border-color: var(--cyan); }
       <div class="pos-card" style="flex:1;min-width:120px;">
         <div class="pos-label">Steps taken</div>
         <div class="pos-val" id="autoStepsVal" style="font-size:16px;color:var(--cyan);">0</div>
-        <div class="pos-unit">total motor steps moved since auto-track started</div>
+        <div class="pos-unit" id="autoStepsDetail">total · ↻ 0 CW · 0 CCW</div>
       </div>
     </div>
   </div>
@@ -2387,6 +2387,7 @@ refreshPorts();
 ═══════════════════════════════════════════════ */
 let _autoRunning     = false;
 let _autoStatusTimer = null;
+let _autoCCDTimer    = null;
 let _autoPanelOpen   = false;
 let _ccdLiveTimer    = null;
 
@@ -2466,12 +2467,14 @@ async function startAutoTrack() {
     toast("Auto-tracking started", "ok");
     log("sys", "Auto-tracking STARTED — CCD hill-climb active");
     _stopCCDLive();
-    _autoStatusTimer = setInterval(_autoStatusPoll, 500);
+    _autoStatusTimer = setInterval(_autoStatusPoll, 200);
+    _autoCCDTimer    = setInterval(refreshCCDView, 2000);
   } catch { toast("Bridge unreachable", "err"); }
 }
 
 async function stopAutoTrack() {
   clearInterval(_autoStatusTimer); _autoStatusTimer = null;
+  clearInterval(_autoCCDTimer);    _autoCCDTimer    = null;
   try { await fetch(`${API}/auto_stop`, { method: "POST" }); } catch {}
   _autoRunning = false;
   document.getElementById("autoStartBtn").disabled = false;
@@ -2498,9 +2501,13 @@ async function _autoStatusPoll() {
     const d = await (await fetch(`${API}/auto_status`)).json();
     if (!d.ok) return;
     setAutoStateBadge(d.state);
-    if (d.intensity   !== undefined) document.getElementById("autoIntensityVal").textContent = Math.round(d.intensity).toLocaleString();
-    if (d.peak_intensity !== undefined) document.getElementById("autoPeakVal").textContent   = Math.round(d.peak_intensity).toLocaleString();
-    if (d.steps_taken !== undefined) document.getElementById("autoStepsVal").textContent     = d.steps_taken.toLocaleString();
+    if (d.intensity     !== undefined) document.getElementById("autoIntensityVal").textContent = Math.round(d.intensity).toLocaleString();
+    if (d.best_ever     !== undefined) document.getElementById("autoPeakVal").textContent      = Math.round(d.best_ever).toLocaleString();
+    if (d.steps_taken   !== undefined) {
+      document.getElementById("autoStepsVal").textContent    = d.steps_taken.toLocaleString();
+      document.getElementById("autoStepsDetail").textContent =
+        `total · ↻ ${(d.steps_cw||0).toLocaleString()} CW · ${(d.steps_ccw||0).toLocaleString()} CCW`;
+    }
     // Sync motor position shown in the main panel
     if (typeof d.motor_pos === "number") {
       netSteps = d.motor_pos;
