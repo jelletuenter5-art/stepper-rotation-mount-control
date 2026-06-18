@@ -2392,7 +2392,6 @@ refreshPorts();
 ═══════════════════════════════════════════════ */
 let _autoRunning     = false;
 let _autoStatusTimer = null;
-let _autoCCDTimer    = null;
 let _autoPanelOpen   = false;
 let _ccdLiveTimer    = null;
 
@@ -2473,13 +2472,11 @@ async function startAutoTrack() {
     log("sys", "Auto-tracking STARTED — CCD hill-climb active");
     _stopCCDLive();
     _autoStatusTimer = setInterval(_autoStatusPoll, 200);
-    _autoCCDTimer    = setInterval(refreshCCDView, 1000);
   } catch { toast("Bridge unreachable", "err"); }
 }
 
 async function stopAutoTrack() {
   clearInterval(_autoStatusTimer); _autoStatusTimer = null;
-  clearInterval(_autoCCDTimer);    _autoCCDTimer    = null;
   try { await fetch(`${API}/auto_stop`, { method: "POST" }); } catch {}
   _autoRunning = false;
   document.getElementById("autoStartBtn").disabled = false;
@@ -2513,6 +2510,7 @@ async function _autoStatusPoll() {
       document.getElementById("autoStepsDetail").textContent =
         `total · ↻ ${(d.steps_cw||0).toLocaleString()} CW · ${(d.steps_ccw||0).toLocaleString()} CCW`;
     }
+    if (d.pixels && d.pixels.length > 0) drawCCDCanvas(d.pixels);
     // Sync motor position shown in the main panel
     if (typeof d.motor_pos === "number") {
       netSteps = d.motor_pos;

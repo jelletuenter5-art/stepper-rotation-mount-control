@@ -151,6 +151,7 @@ _auto_direction     = "none"      # CW | CCW | none
 _auto_steps_taken   = 0           # cumulative total steps (never resets)
 _auto_steps_cw      = 0           # cumulative CW steps
 _auto_steps_ccw     = 0           # cumulative CCW steps
+_auto_last_pixels   = []          # latest pixel frame for canvas (set by tracker)
 _auto_thread        = None
 _auto_stop_event    = threading.Event()
 
@@ -179,19 +180,31 @@ def _read_ccd_intensity():
     return corrected_sum, parts.get("peak", 0), parts.get("pixel", 0)
 
 
+def _read_intensity_avg(n=3):
+    """Average n CCD intensity readings to smooth out sensor noise."""
+    total = 0
+    for _ in range(n):
+        s, _, _ = _read_ccd_intensity()
+        total += s
+    return total // n
+
+
 def _hill_climb(dither, track):
     """
-    Probe CW vs CCW (track-size steps), then walk toward the better side
-    until intensity peaks. Returns best intensity found, or None on error.
+    Probe CW vs CCW using dither-sized steps (large enough to detect direction
+    clearly above noise), then walk toward the better side in track-sized steps
+    until intensity drops. Returns best intensity found, or None on error.
     Caller must NOT hold _serial_lock or _auto_lock.
     """
     global _auto_intensity, _auto_best_ever, _auto_direction
-    probe = max(track, 10)
+    probe = max(dither, track)
     try:
         _move_steps("CW", probe)
-        i_cw, _, _ = _read_ccd_intensity()
+        time.sleep(0.05)
+        i_cw = _read_intensity_avg(2)
         _move_steps("CCW", probe)
-        i_base, _, _ = _read_ccd_intensity()
+        time.sleep(0.05)
+        i_base = _read_intensity_avg(2)
     except Exception:
         return None
 
@@ -204,25 +217,30 @@ def _hill_climb(dither, track):
 
     with _auto_lock:
         _auto_direction = search_dir
+        _auto_intensity = current_best
+        if current_best > _auto_best_ever:
+            _auto_best_ever = current_best
 
     while not _auto_stop_event.is_set():
         try:
             _move_steps(search_dir, track)
-            time.sleep(0.05)   # brief settle before reading
-            new_i, _, _ = _read_ccd_intensity()
+            time.sleep(0.05)
+            new_i = _read_intensity_avg(2)
         except Exception:
             break
         with _auto_lock:
             _auto_intensity = new_i
             if new_i > _auto_best_ever:
                 _auto_best_ever = new_i
-        if new_i < current_best:
+        # Only stop if clearly dropped (>5% below best) — avoids stopping on noise
+        if new_i < current_best * 0.95:
             try:
                 _move_steps(opp_dir, track // 2)
             except Exception:
                 pass
             break
-        current_best = new_i
+        if new_i > current_best:
+            current_best = new_i
 
     return current_best
 
@@ -266,6 +284,7 @@ def _auto_tracker_thread():
             _auto_direction = "none"
 
         # ── Main tracking loop ────────────────────────────────────────────
+        _pixel_tick = 0
         while not _auto_stop_event.is_set():
             time.sleep(_auto_poll_interval)
             if _auto_stop_event.is_set():
@@ -275,6 +294,18 @@ def _auto_tracker_thread():
                 current_sum, _, _ = _read_ccd_intensity()
             except Exception:
                 continue
+
+            # Every 4th poll also grab full pixel frame for the canvas
+            _pixel_tick += 1
+            if _pixel_tick >= 4:
+                _pixel_tick = 0
+                try:
+                    raw = _read_ccd_pixels_raw()
+                    with _auto_lock:
+                        global _auto_last_pixels
+                        _auto_last_pixels = _apply_dark(raw)
+                except Exception:
+                    pass
 
             with _auto_lock:
                 _auto_intensity = current_sum
@@ -728,19 +759,21 @@ def ccd_int():
 @app.route("/auto_status", methods=["GET"])
 def auto_status():
     with _auto_lock:
-        return jsonify({
-            "ok":            True,
-            "running":       _auto_running,
-            "state":         _auto_state,
-            "intensity":     _auto_intensity,
-            "peak_intensity":_auto_peak_intensity,
-            "best_ever":     _auto_best_ever,
-            "motor_pos":     _motor_pos,
-            "direction":     _auto_direction,
-            "steps_taken":   _auto_steps_taken,
-            "steps_cw":      _auto_steps_cw,
-            "steps_ccw":     _auto_steps_ccw,
-        })
+        pixels = _auto_last_pixels[:]  # snapshot; JS will consume and draw
+    return jsonify({
+        "ok":            True,
+        "running":       _auto_running,
+        "state":         _auto_state,
+        "intensity":     _auto_intensity,
+        "peak_intensity":_auto_peak_intensity,
+        "best_ever":     _auto_best_ever,
+        "motor_pos":     _motor_pos,
+        "direction":     _auto_direction,
+        "steps_taken":   _auto_steps_taken,
+        "steps_cw":      _auto_steps_cw,
+        "steps_ccw":     _auto_steps_ccw,
+        "pixels":        pixels if pixels else None,
+    })
 
 
 @app.route("/auto_start", methods=["POST"])
@@ -785,4 +818,4 @@ def auto_stop():
 
 
 if __name__ == "__main__":
-    app.run(port=5001)
+    app.run(port=5001, threaded=True)
