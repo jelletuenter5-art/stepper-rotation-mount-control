@@ -198,7 +198,7 @@ def _update_best(val):
             _auto_best_ever = val
 
 
-def _wide_scan(dither, n_scan=8):
+def _wide_scan(dither, n_scan=4):
     """
     Phase 1 — Wide scan.
     Sweeps CW for n_scan dither-steps (measuring at each), returns to start in
@@ -225,7 +225,7 @@ def _wide_scan(dither, n_scan=8):
             break
         try:
             _move_steps("CW", dither)
-            time.sleep(0.01)
+            time.sleep(0.005)
             val = _read_intensity_avg(n=1)
             positions.append((_motor_pos, val))
             _update_best(val)
@@ -250,7 +250,7 @@ def _wide_scan(dither, n_scan=8):
             break
         try:
             _move_steps("CCW", dither)
-            time.sleep(0.01)
+            time.sleep(0.005)
             val = _read_intensity_avg(n=1)
             positions.append((_motor_pos, val))
             _update_best(val)
@@ -293,10 +293,10 @@ def _fine_tune(track):
     # Probe one track step CW then back to determine direction
     try:
         _move_steps("CW", track)
-        time.sleep(0.01)
+        time.sleep(0.005)
         i_cw = _read_intensity_avg(n=1)
         _move_steps("CCW", track)
-        time.sleep(0.01)
+        time.sleep(0.005)
         i_back = _read_intensity_avg(n=1)
     except Exception:
         return current_best
@@ -318,7 +318,7 @@ def _fine_tune(track):
     while not _auto_stop_event.is_set():
         try:
             _move_steps(search_dir, track)
-            time.sleep(0.01)
+            time.sleep(0.005)
             new_i = _read_intensity_avg(n=1)
         except Exception:
             break
@@ -338,7 +338,7 @@ def _fine_tune(track):
     return current_best
 
 
-def _find_peak(dither, track, n_scan=8):
+def _find_peak(dither, track, n_scan=4):
     """
     Two-phase peak search:
       1. Wide scan — continuous CW+CCW sweep, navigates to global max in-place
