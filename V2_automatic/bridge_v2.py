@@ -181,12 +181,11 @@ def _read_ccd_intensity():
 
 def _hill_climb(dither, track):
     """
-    Probe CW vs CCW (using track-size steps for the probe to stay fast),
-    then walk in the better direction until intensity peaks.
-    Returns best intensity found, or None on error.
+    Probe CW vs CCW (track-size steps), then walk toward the better side
+    until intensity peaks. Returns best intensity found, or None on error.
     Caller must NOT hold _serial_lock or _auto_lock.
     """
-    global _auto_intensity, _auto_steps_taken, _auto_direction
+    global _auto_intensity, _auto_best_ever, _auto_direction
     probe = max(track, 10)
     try:
         _move_steps("CW", probe)
@@ -218,7 +217,6 @@ def _hill_climb(dither, track):
             if new_i > _auto_best_ever:
                 _auto_best_ever = new_i
         if new_i < current_best:
-            # Overshot — step back half a track
             try:
                 _move_steps(opp_dir, track // 2)
             except Exception:

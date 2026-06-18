@@ -632,8 +632,13 @@ select:focus { border-color: var(--cyan); }
   <div style="margin-bottom:14px;padding:12px 15px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;font-size:10px;color:var(--dim);line-height:1.85;">
     <strong style="color:var(--white);font-size:11px;letter-spacing:0.5px;">How automatic mode works</strong><br><br>
     A small mirror picks off ~1–2% of the beam and directs it onto the <strong style="color:var(--cyan);">TCD1304DG</strong> linear CCD sensor (3648 pixels).
-    The sensor measures how much light it receives. When the diffraction grating is at the <strong>correct angle</strong> for the target wavelength,
-    the beam is aligned and the CCD sees <strong style="color:var(--green);">maximum intensity</strong>.<br><br>
+    The sensor measures how much light it receives. When the diffraction crystals are at the <strong>correct angle</strong> for the target wavelength, the beam is aligned and the CCD sees <strong style="color:var(--green);">maximum intensity</strong>.<br><br>
+    <strong>Typical workflow:</strong><br>
+    &nbsp;&nbsp;<strong style="color:var(--cyan);">①</strong> Seek Home, then move the motor to approximately the middle of the travel range (~16°) so the crystals can go both CW and CCW.<br>
+    &nbsp;&nbsp;<strong style="color:var(--cyan);">②</strong> Manually find the correct crystal position for each wavelength and save it to the calibration table (Record / Calibrate tab).<br>
+    &nbsp;&nbsp;<strong style="color:var(--cyan);">③</strong> Use <strong>Go to λ</strong> to jump to the lookup-table position. Due to mechanical tolerances there is usually a ±300–1000 step error.<br>
+    &nbsp;&nbsp;<strong style="color:var(--cyan);">④</strong> Click <strong>Start Auto-Track</strong>. The motor fine-tunes around the lookup-table position to find the true intensity peak, correcting the mechanical error.<br>
+    &nbsp;&nbsp;<strong style="color:var(--cyan);">⑤</strong> When the lab changes wavelength, intensity drops. Auto-track detects the drop and re-searches for the new peak automatically.<br><br>
     The system works in three phases:<br>
     &nbsp;&nbsp;<strong style="color:var(--yellow);">① Initial search</strong> — immediately on start, the motor dithers CW and CCW to find which direction gives more intensity, then walks that way until intensity peaks. This finds the optimal crystal angle for the current wavelength.<br>
     &nbsp;&nbsp;<strong style="color:var(--green);">② Track</strong> — the motor holds position and keeps reading the CCD every 200 ms. When intensity is stable, nothing moves.<br>
@@ -2468,7 +2473,7 @@ async function startAutoTrack() {
     log("sys", "Auto-tracking STARTED — CCD hill-climb active");
     _stopCCDLive();
     _autoStatusTimer = setInterval(_autoStatusPoll, 200);
-    _autoCCDTimer    = setInterval(refreshCCDView, 2000);
+    _autoCCDTimer    = setInterval(refreshCCDView, 1000);
   } catch { toast("Bridge unreachable", "err"); }
 }
 
