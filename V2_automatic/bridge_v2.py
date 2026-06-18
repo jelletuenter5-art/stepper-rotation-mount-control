@@ -200,15 +200,15 @@ def _update_best(val):
 
 def _wide_scan(dither, n_scan=8):
     """
-    Phase 1 — Continuous wide scan.
-    Sweeps CW for n_scan dither-steps, then CCW for 2*n_scan dither-steps
-    (covering n_scan steps past the start in CCW direction) — all in one
-    continuous pass with no return-to-start in the middle.
+    Phase 1 — Wide scan.
+    Sweeps CW for n_scan dither-steps (measuring at each), returns to start in
+    one fast move, then sweeps CCW for n_scan dither-steps (measuring at each).
     Navigates to the best position found before returning.
     Returns (best_intensity, best_motor_pos) or (None, None) on error.
     """
     global _auto_direction
     positions = []
+    start_pos = _motor_pos
 
     try:
         val = _read_intensity_avg(n=1)
@@ -217,7 +217,7 @@ def _wide_scan(dither, n_scan=8):
     except Exception:
         return None, None
 
-    # Sweep CW
+    # Sweep CW — measure at each step
     with _auto_lock:
         _auto_direction = "CW"
     for _ in range(n_scan):
@@ -225,22 +225,32 @@ def _wide_scan(dither, n_scan=8):
             break
         try:
             _move_steps("CW", dither)
-            time.sleep(0.02)
+            time.sleep(0.01)
             val = _read_intensity_avg(n=1)
             positions.append((_motor_pos, val))
             _update_best(val)
         except Exception:
             break
 
-    # Sweep CCW — 2*n_scan steps: passes through start, then n_scan beyond
+    # Return to start in one move (no measurements — just repositioning)
+    cw_end = _motor_pos
+    if cw_end != start_pos:
+        with _auto_lock:
+            _auto_direction = "CCW"
+        try:
+            _move_steps("CCW", abs(cw_end - start_pos))
+        except Exception:
+            pass
+
+    # Sweep CCW — same n_scan steps, measuring at each
     with _auto_lock:
         _auto_direction = "CCW"
-    for _ in range(n_scan * 2):
+    for _ in range(n_scan):
         if _auto_stop_event.is_set():
             break
         try:
             _move_steps("CCW", dither)
-            time.sleep(0.02)
+            time.sleep(0.01)
             val = _read_intensity_avg(n=1)
             positions.append((_motor_pos, val))
             _update_best(val)
@@ -283,10 +293,10 @@ def _fine_tune(track):
     # Probe one track step CW then back to determine direction
     try:
         _move_steps("CW", track)
-        time.sleep(0.02)
+        time.sleep(0.01)
         i_cw = _read_intensity_avg(n=1)
         _move_steps("CCW", track)
-        time.sleep(0.02)
+        time.sleep(0.01)
         i_back = _read_intensity_avg(n=1)
     except Exception:
         return current_best
@@ -308,13 +318,16 @@ def _fine_tune(track):
     while not _auto_stop_event.is_set():
         try:
             _move_steps(search_dir, track)
-            time.sleep(0.02)
+            time.sleep(0.01)
             new_i = _read_intensity_avg(n=1)
         except Exception:
             break
         _update_best(new_i)
-        if new_i <= current_best:
-            # Passed the peak — step back one and stop
+        if new_i == current_best:
+            # Equal — already at peak, stay in place
+            break
+        if new_i < current_best:
+            # Dropped — step back one and stop
             try:
                 _move_steps(opp_dir, track)
             except Exception:
