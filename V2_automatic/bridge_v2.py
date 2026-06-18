@@ -191,7 +191,7 @@ def _read_intensity_avg(n=2):
 
 def _update_best(val):
     """Update _auto_intensity and _auto_best_ever under lock."""
-    global _auto_best_ever
+    global _auto_intensity, _auto_best_ever
     with _auto_lock:
         _auto_intensity = val
         if val > _auto_best_ever:
