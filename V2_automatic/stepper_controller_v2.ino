@@ -54,6 +54,11 @@ long currentPosition = 0;        // absolute step position from home
 bool stopFlag        = false;
 int  stepDelay       = 500;      // µs half-period
 
+// ─── Direction polarity ───────────────────────────
+// Swap these two if the motor runs backwards on your driver board.
+#define DIR_CW  LOW
+#define DIR_CCW HIGH
+
 // ─── Homing constants ─────────────────────────────
 const int  HOME_FAST_DELAY  = 80;   // µs — fast CCW sweep
 const int  HOME_LAST        = 750;  // µs — CW offset rotation (slow/precise)
@@ -89,7 +94,7 @@ void applyMstep(int idx) {
 // Returns true if completed cleanly, false if stopped or limit hit.
 bool doMove(bool cw, long steps) {
   stopFlag = false;
-  digitalWrite(dirPin, cw ? HIGH : LOW);
+  digitalWrite(dirPin, cw ? DIR_CW : DIR_CCW);
   for (long i = 0; i < steps; i++) {
     // Check for STOP command mid-move
     if (Serial.available() > 0) {
@@ -347,7 +352,7 @@ void loop() {
 
       if (digitalRead(limitPin) == HIGH) {
         Serial.println(F("Homing: clearing switch — backing off CW..."));
-        digitalWrite(dirPin, HIGH);
+        digitalWrite(dirPin, DIR_CW);
         for (int i = 0; i < 800; i++) {
           digitalWrite(stepPin, HIGH); delayMicroseconds(HOME_FAST_DELAY);
           digitalWrite(stepPin, LOW);  delayMicroseconds(HOME_FAST_DELAY);
@@ -355,7 +360,7 @@ void loop() {
       }
 
       Serial.println(F("Homing: fast sweep CCW..."));
-      digitalWrite(dirPin, LOW);
+      digitalWrite(dirPin, DIR_CCW);
       unsigned long t0 = millis();
       while (digitalRead(limitPin) == LOW) {
         digitalWrite(stepPin, HIGH); delayMicroseconds(HOME_FAST_DELAY);
@@ -367,7 +372,7 @@ void loop() {
       }
 
       Serial.println(F("Homing: backing off CW..."));
-      digitalWrite(dirPin, HIGH);
+      digitalWrite(dirPin, DIR_CW);
       for (long i = 0; i < HOME_BACKOFF; i++) {
         digitalWrite(stepPin, HIGH); delayMicroseconds(HOME_FAST_DELAY);
         digitalWrite(stepPin, LOW);  delayMicroseconds(HOME_FAST_DELAY);
@@ -375,7 +380,7 @@ void loop() {
       delay(120);
 
       Serial.println(F("Homing: slow creep CCW..."));
-      digitalWrite(dirPin, LOW);
+      digitalWrite(dirPin, DIR_CCW);
       t0 = millis();
       while (digitalRead(limitPin) == LOW) {
         digitalWrite(stepPin, HIGH); delayMicroseconds(HOME_CREEP_DELAY);
@@ -389,7 +394,7 @@ void loop() {
       Serial.println(F("Homing: 4 rotations CW offset..."));
       applyMstep(0);
       delay(10);
-      digitalWrite(dirPin, HIGH);
+      digitalWrite(dirPin, DIR_CW);
       for (int i = 0; i < 12800; i++) {
         digitalWrite(stepPin, HIGH); delayMicroseconds(HOME_LAST);
         digitalWrite(stepPin, LOW);  delayMicroseconds(HOME_LAST);
