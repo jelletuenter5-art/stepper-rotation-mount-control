@@ -56,8 +56,8 @@ int  stepDelay       = 500;      // µs half-period
 
 // ─── Direction polarity ───────────────────────────
 // Swap these two if the motor runs backwards on your driver board.
-#define DIR_CW  LOW
-#define DIR_CCW HIGH
+#define DIR_CW  HIGH
+#define DIR_CCW LOW
 
 // ─── Homing constants ─────────────────────────────
 const int  HOME_FAST_DELAY  = 80;   // µs — fast CCW sweep
